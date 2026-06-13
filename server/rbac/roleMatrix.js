@@ -20,14 +20,15 @@ const { PERMISSION_SETS } = require('./matrix');
 const ROLE_MATRIX = Object.freeze({
   // ───────── Top of hierarchy ─────────
   Owner:           Object.freeze([
-    'SystemAdmin', 'UserAdmin', 'SecurityAdmin', 'ComplianceOperator', 'RetentionAdmin',
+    'SystemAdmin', 'TenantAdmin', 'UserAdmin', 'SecurityAdmin', 'ComplianceOperator', 'ComplianceAdmin', 'RetentionAdmin', 'RetentionOperator',
     'FinanceOperator', 'FinancePeriodAdmin', 'TaxFiler',
     'CRMOperator', 'InventoryOperator', 'InventoryAdmin', 'PurchaseOperator', 'PurchaseAdmin',
     'POSOperator', 'POSSupervisor', 'HROperator', 'PayrollOperator',
     'ProjectsOperator', 'DeskOperator', 'DeskAdmin',
-    'DocsOperator', 'DocsAdmin', 'MarketingOperator', 'ManufacturingOperator',
+    'DocsOperator', 'DocsAdmin', 'MarketingOperator', 'MarketingAutomation', 'ManufacturingOperator', 'ManufacturingAdmin', 'QualityHoldAdmin',
     'StudioBuilder', 'ReportBuilder', 'AuditOperator', 'AuditDeliver',
-    'AIPowerUser', 'PIIEditor', 'StandardUser',
+    'AIPowerUser', 'AIGovernance', 'AgentDeveloper', 'AgentDeployer',
+    'PIIEditor', 'StandardUser',
   ]),
   Admin:           Object.freeze([
     'SystemAdmin', 'UserAdmin', 'SecurityAdmin', 'ComplianceOperator', 'RetentionAdmin',
@@ -35,9 +36,9 @@ const ROLE_MATRIX = Object.freeze({
     'CRMOperator', 'InventoryOperator', 'InventoryAdmin', 'PurchaseOperator', 'PurchaseAdmin',
     'POSOperator', 'POSSupervisor', 'HROperator', 'PayrollOperator',
     'ProjectsOperator', 'DeskOperator', 'DeskAdmin',
-    'DocsOperator', 'DocsAdmin', 'MarketingOperator', 'ManufacturingOperator',
+    'DocsOperator', 'DocsAdmin', 'MarketingOperator', 'MarketingAutomation', 'ManufacturingOperator', 'ManufacturingAdmin',
     'StudioBuilder', 'ReportBuilder', 'AuditOperator',
-    'AIEnabled', 'AIMutator', 'StandardUser',
+    'AIEnabled', 'AIMutator', 'AIGovernance', 'AgentDeveloper', 'StandardUser',
   ]),
 
   // ───────── Functional leads ─────────
@@ -126,7 +127,7 @@ const ROLE_MATRIX = Object.freeze({
     'AIEnabled', 'AIMutator', 'ComplianceOperator', 'AuditOperator', 'ReportBuilder', 'StandardUser',
   ]),
   ComplianceOfficer: Object.freeze([
-    'ComplianceOperator', 'RetentionAdmin', 'AuditOperator', 'ReportBuilder',
+    'ComplianceOperator', 'ComplianceAdmin', 'RetentionAdmin', 'RetentionOperator', 'AuditOperator', 'ReportBuilder',
     'AIEnabled', 'PIIEditor', 'StandardUser',
   ]),
   Auditor:         Object.freeze([

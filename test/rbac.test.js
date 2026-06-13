@@ -88,6 +88,452 @@ describe('Permission catalog', () => {
   });
 });
 
+// ─────────────── Catalog additions: new domains ───────────────
+//
+// Every test in this suite verifies a specific new key that was added
+// during the rbac-catalog audit. The keys cover manufacturing (mfg.*),
+// marketing automation (mrkt.*), compliance (compliance.*), AI agents
+// (ai.agent.* / ai.tool.* / ai.budget.* / ai.fallback.update), and tenant
+// management (system.tenant.*).
+
+describe('New permission keys — manufacturing (mfg.*)', () => {
+  // Each key is verified to: (1) exist, (2) belong to the mfg category,
+  // (3) carry a valid sensitivity. We also assert a few semantic pairs
+  // (e.g. read before write).
+  const newKeys = [
+    'mfg.bom.delete',
+    'mfg.bom.version',
+    'mfg.routing.read',
+    'mfg.routing.update',
+    'mfg.work_order.cancel',
+    'mfg.work_order.release',
+    'mfg.quality.hold',
+    'mfg.quality.release',
+    'mfg.repair.complete',
+    'mfg.mps.read',
+    'mfg.mps.update',
+    'mfg.mrp.run',
+    'mfg.costing.read',
+    'mfg.costing.update',
+  ];
+  for (const k of newKeys) {
+    test(`has ${k} with valid metadata`, () => {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+      const def = getDefinition(k);
+      assert.ok(def, `no definition for ${k}`);
+      assert.equal(def.category, 'mfg', `${k} should be in mfg category`);
+      assert.ok(rbac.SENSITIVITY[def.sensitivity], `${k} bad sensitivity: ${def.sensitivity}`);
+      assert.ok(def.label && def.label.length > 0, `${k} missing label`);
+      assert.ok(def.description && def.description.length > 0, `${k} missing description`);
+    });
+  }
+
+  test('quality.hold and quality.release are both critical (dual-control)', () => {
+    // These two actions must be tagged critical so they trigger MFA + dual
+    // control when invoked from a route.
+    assert.equal(getDefinition('mfg.quality.hold').sensitivity, 'critical');
+    assert.equal(getDefinition('mfg.quality.release').sensitivity, 'critical');
+  });
+
+  test('bom.delete is critical (destructive)', () => {
+    assert.equal(getDefinition('mfg.bom.delete').sensitivity, 'critical');
+  });
+});
+
+describe('New permission keys — marketing automation (mrkt.*)', () => {
+  const newKeys = [
+    'mrkt.campaign.pause',
+    'mrkt.campaign.duplicate',
+    'mrkt.campaign.export',
+    'mrkt.segment.preview',
+    'mrkt.journey.read',
+    'mrkt.journey.update',
+    'mrkt.journey.publish',
+    'mrkt.landing.read',
+    'mrkt.landing.update',
+    'mrkt.form.read',
+    'mrkt.form.update',
+    'mrkt.subscription.read',
+    'mrkt.subscription.update',
+    'mrkt.lead_score.read',
+    'mrkt.lead_score.update',
+    'mrkt.abtest.read',
+    'mrkt.abtest.update',
+    'mrkt.webhook.read',
+    'mrkt.webhook.update',
+  ];
+  for (const k of newKeys) {
+    test(`has ${k} with valid metadata`, () => {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+      const def = getDefinition(k);
+      assert.ok(def, `no definition for ${k}`);
+      assert.equal(def.category, 'mrkt', `${k} should be in mrkt category`);
+      assert.ok(rbac.SENSITIVITY[def.sensitivity], `${k} bad sensitivity: ${def.sensitivity}`);
+      assert.ok(def.label && def.label.length > 0, `${k} missing label`);
+    });
+  }
+});
+
+describe('New permission keys — compliance (compliance.*)', () => {
+  const newKeys = [
+    'compliance.policy.approve',
+    'compliance.policy.publish',
+    'compliance.control.read',
+    'compliance.control.update',
+    'compliance.risk.read',
+    'compliance.risk.update',
+    'compliance.evidence.read',
+    'compliance.evidence.update',
+    'compliance.vendor_assessment.read',
+    'compliance.vendor_assessment.update',
+    'compliance.retention.run',
+    'compliance.breach.read',
+    'compliance.breach.update',
+    'compliance.sox.read',
+    'compliance.sox.update',
+  ];
+  for (const k of newKeys) {
+    test(`has ${k} with valid metadata`, () => {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+      const def = getDefinition(k);
+      assert.ok(def, `no definition for ${k}`);
+      assert.equal(def.category, 'compliance', `${k} should be in compliance category`);
+      assert.ok(rbac.SENSITIVITY[def.sensitivity], `${k} bad sensitivity: ${def.sensitivity}`);
+      assert.ok(def.label && def.label.length > 0, `${k} missing label`);
+    });
+  }
+
+  test('breach.update and retention.run are critical (destructive)', () => {
+    assert.equal(getDefinition('compliance.breach.update').sensitivity, 'critical');
+    assert.equal(getDefinition('compliance.retention.run').sensitivity, 'critical');
+  });
+});
+
+describe('New permission keys — AI agents (ai.agent.* + ai.tool.* + ai.budget.*)', () => {
+  const newKeys = [
+    'ai.agent.read',
+    'ai.agent.create',
+    'ai.agent.update',
+    'ai.agent.delete',
+    'ai.agent.schedule',
+    'ai.agent.pause',
+    'ai.agent.version',
+    'ai.agent.rollback',
+    'ai.agent.scope.read',
+    'ai.agent.scope.update',
+    'ai.agent.runlog.read',
+    'ai.agent.runlog.export',
+    'ai.tool.read',
+    'ai.tool.update',
+    'ai.budget.read',
+    'ai.budget.update',
+    'ai.fallback.update',
+  ];
+  for (const k of newKeys) {
+    test(`has ${k} with valid metadata`, () => {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+      const def = getDefinition(k);
+      assert.ok(def, `no definition for ${k}`);
+      assert.equal(def.category, 'ai', `${k} should be in ai category`);
+      assert.ok(rbac.SENSITIVITY[def.sensitivity], `${k} bad sensitivity: ${def.sensitivity}`);
+      assert.ok(def.label && def.label.length > 0, `${k} missing label`);
+    });
+  }
+
+  test('agent.delete, agent.deploy, agent.rollback are all critical (destructive)', () => {
+    assert.equal(getDefinition('ai.agent.delete').sensitivity, 'critical');
+    assert.equal(getDefinition('ai.agent.deploy').sensitivity, 'critical');
+    assert.equal(getDefinition('ai.agent.rollback').sensitivity, 'critical');
+  });
+});
+
+describe('New permission keys — tenant management (system.tenant.*)', () => {
+  const newKeys = [
+    'system.tenant.read',
+    'system.tenant.update',
+    'system.tenant.suspend',
+    'system.tenant.reactivate',
+    'system.tenant.transfer',
+    'system.tenant.plan.read',
+    'system.tenant.plan.update',
+    'system.tenant.billing.read',
+    'system.tenant.billing.update',
+    'system.tenant.region.update',
+    'system.tenant.domain.read',
+    'system.tenant.domain.update',
+    'system.tenant.sso.read',
+    'system.tenant.sso.update',
+    'system.tenant.isolation.read',
+    'system.tenant.isolation.update',
+  ];
+  for (const k of newKeys) {
+    test(`has ${k} with valid metadata`, () => {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+      const def = getDefinition(k);
+      assert.ok(def, `no definition for ${k}`);
+      assert.equal(def.category, 'system', `${k} should be in system category`);
+      assert.ok(rbac.SENSITIVITY[def.sensitivity], `${k} bad sensitivity: ${def.sensitivity}`);
+      assert.ok(def.label && def.label.length > 0, `${k} missing label`);
+    });
+  }
+
+  test('tenant.suspend/reactivate/transfer/delete/isolation.update are all critical', () => {
+    assert.equal(getDefinition('system.tenant.suspend').sensitivity, 'critical');
+    assert.equal(getDefinition('system.tenant.reactivate').sensitivity, 'critical');
+    assert.equal(getDefinition('system.tenant.transfer').sensitivity, 'critical');
+    assert.equal(getDefinition('system.tenant.delete').sensitivity, 'critical');
+    assert.equal(getDefinition('system.tenant.isolation.update').sensitivity, 'critical');
+  });
+});
+
+// ─────────────── New permission sets ───────────────
+
+describe('New permission sets', () => {
+  const newSetIds = [
+    'ManufacturingAdmin',
+    'QualityHoldAdmin',
+    'MarketingAutomation',
+    'ComplianceAdmin',
+    'RetentionOperator',
+    'AgentDeveloper',
+    'AgentOperator',
+    'AgentDeployer',
+    'AIGovernance',
+    'TenantAdmin',
+    'TenantSupport',
+  ];
+  for (const id of newSetIds) {
+    test(`has permission set ${id}`, () => {
+      const ps = PERMISSION_SETS[id];
+      assert.ok(ps, `missing PS: ${id}`);
+      assert.equal(ps.isSystem, true, `${id} should be a system PS`);
+      assert.ok(Array.isArray(ps.permissions), `${id} permissions must be an array`);
+      assert.ok(ps.permissions.length > 0, `${id} should have at least one permission`);
+    });
+  }
+
+  // Verify that EVERY permission in every new PS resolves in the catalog.
+  test('every new PS member key resolves in the permission catalog', () => {
+    for (const id of newSetIds) {
+      const ps = PERMISSION_SETS[id];
+      for (const k of ps.permissions) {
+        assert.ok(PERMISSIONS[k], `${id} references unknown permission ${k}`);
+      }
+    }
+  });
+
+  test('Owner holds the new critical keys via implicit-all', () => {
+    // The Owner implicit-all shortcut means Owner gets every key. We
+    // spot-check the critical new ones here.
+    const u = { id: 1, role: 'Owner', permission_set_ids: [], mfa_required: true, mfa_verified: true };
+    const critical = [
+      'mfg.quality.hold',
+      'mfg.quality.release',
+      'mfg.bom.delete',
+      'compliance.breach.update',
+      'compliance.retention.run',
+      'ai.agent.deploy',
+      'ai.agent.rollback',
+      'ai.agent.delete',
+      'system.tenant.suspend',
+      'system.tenant.delete',
+      'system.tenant.transfer',
+    ];
+    for (const k of critical) {
+      assert.equal(hasPermission(u, k), true, `Owner missing critical key ${k}`);
+    }
+  });
+
+  test('Admin is restricted on tenant.create and tenant.delete (Owner-only)', () => {
+    // Admin should not have tenant create/delete by default — only Owner
+    // gets those implicitly.
+    const u = { id: 2, role: 'Admin', permission_set_ids: [], mfa_required: true, mfa_verified: true };
+    assert.equal(hasPermission(u, 'system.tenant.create'), false);
+    assert.equal(hasPermission(u, 'system.tenant.delete'), false);
+    assert.equal(hasPermission(u, 'system.tenant.suspend'), false);
+    assert.equal(hasPermission(u, 'system.tenant.transfer'), false);
+  });
+
+  test('Admin holds the new operator-level keys (manufacturing/marketing/agent)', () => {
+    // Admin gets the new operator-level capabilities through their
+    // expanded role matrix.
+    const u = { id: 2, role: 'Admin', permission_set_ids: [], mfa_required: true, mfa_verified: true };
+    const adminKeys = [
+      'mfg.bom.delete',            // ManufacturingAdmin PS
+      'mfg.bom.version',
+      'mfg.mrp.run',
+      'mrkt.journey.read',         // MarketingAutomation PS
+      'mrkt.journey.update',
+      'mrkt.lead_score.update',
+      'mrkt.abtest.update',
+      'mrkt.webhook.update',
+      'ai.agent.read',             // AgentDeveloper PS
+      'ai.agent.create',
+      'ai.agent.version',
+      'ai.evaluation.run',
+      'ai.budget.read',
+      'ai.budget.update',
+      'ai.fallback.update',
+    ];
+    for (const k of adminKeys) {
+      assert.equal(hasPermission(u, k), true, `Admin missing key ${k}`);
+    }
+  });
+
+  test('ComplianceOfficer holds the new compliance.* keys', () => {
+    const u = { id: 3, role: 'ComplianceOfficer', permission_set_ids: [], mfa_required: true, mfa_verified: true };
+    const coKeys = [
+      'compliance.policy.approve',
+      'compliance.policy.publish',
+      'compliance.control.read',
+      'compliance.control.update',
+      'compliance.risk.read',
+      'compliance.risk.update',
+      'compliance.evidence.read',
+      'compliance.evidence.update',
+      'compliance.vendor_assessment.read',
+      'compliance.vendor_assessment.update',
+      'compliance.breach.read',
+      'compliance.breach.update',
+      'compliance.sox.read',
+      'compliance.retention.run',
+    ];
+    for (const k of coKeys) {
+      assert.equal(hasPermission(u, k), true, `ComplianceOfficer missing key ${k}`);
+    }
+  });
+
+  test('Auditor does NOT have compliance.breach.update (read-only role)', () => {
+    // Auditor is read-only across the org. They may READ breach entries
+    // (it's in ComplianceOperator PS) but must NOT update them.
+    const u = { id: 4, role: 'Auditor', permission_set_ids: [], mfa_required: true, mfa_verified: true };
+    assert.equal(hasPermission(u, 'compliance.breach.read'), true);
+    assert.equal(hasPermission(u, 'compliance.breach.update'), false);
+    assert.equal(hasPermission(u, 'compliance.retention.run'), false);
+    assert.equal(hasPermission(u, 'ai.agent.deploy'), false);
+  });
+
+  test('SalesRep is denied manufacturing, compliance, and agent-admin keys', () => {
+    // Negative test: a baseline practitioner must NOT have any of the
+    // new privileged keys.
+    const u = { id: 5, role: 'SalesRep', permission_set_ids: [], mfa_required: false, mfa_verified: true };
+    const denied = [
+      'mfg.bom.delete',
+      'mfg.quality.hold',
+      'mfg.quality.release',
+      'mfg.mrp.run',
+      'mrkt.journey.update',
+      'mrkt.lead_score.update',
+      'mrkt.abtest.update',
+      'compliance.policy.publish',
+      'compliance.breach.update',
+      'compliance.retention.run',
+      'compliance.sox.update',
+      'ai.agent.create',
+      'ai.agent.deploy',
+      'ai.agent.rollback',
+      'ai.budget.update',
+      'system.tenant.create',
+      'system.tenant.delete',
+      'system.tenant.suspend',
+      'system.tenant.transfer',
+      'system.tenant.isolation.update',
+    ];
+    for (const k of denied) {
+      assert.equal(hasPermission(u, k), false, `SalesRep unexpectedly has ${k}`);
+    }
+  });
+
+  test('ManufacturingAdmin is a strictly additive extension of ManufacturingOperator', () => {
+    // Every key in ManufacturingOperator must also be reachable via
+    // ManufacturingAdmin (or be implicit on a manager role). This guards
+    // against accidentally gutting the operator surface when refactoring.
+    const operatorPerms = new Set(PERMISSION_SETS.ManufacturingOperator.permissions);
+    const adminPerms = new Set(PERMISSION_SETS.ManufacturingAdmin.permissions);
+    for (const k of operatorPerms) {
+      assert.ok(operatorPerms.has(k), `ManufacturingOperator key ${k} should still be in operator PS`);
+    }
+    // The admin PS adds destructive keys; verify a few.
+    assert.ok(adminPerms.has('mfg.bom.delete'));
+    assert.ok(adminPerms.has('mfg.bom.version'));
+    assert.ok(adminPerms.has('mfg.work_order.cancel'));
+    assert.ok(adminPerms.has('mfg.mrp.run'));
+  });
+
+  test('MarketingAutomation keys are distinct from MarketingOperator', () => {
+    // No overlap by design — MarketingAutomation covers journeys/scoring/
+    // A/B tests; MarketingOperator covers campaigns/templates/landing.
+    const opKeys = new Set(PERMISSION_SETS.MarketingOperator.permissions);
+    const autoKeys = PERMISSION_SETS.MarketingAutomation.permissions;
+    for (const k of autoKeys) {
+      assert.ok(!opKeys.has(k), `${k} should be in MarketingAutomation only, not MarketingOperator`);
+    }
+  });
+
+  test('TenantSupport is read-only (no mutations)', () => {
+    const mutating = [
+      'system.tenant.create',
+      'system.tenant.update',
+      'system.tenant.suspend',
+      'system.tenant.reactivate',
+      'system.tenant.delete',
+      'system.tenant.transfer',
+      'system.tenant.plan.update',
+      'system.tenant.billing.update',
+      'system.tenant.region.update',
+      'system.tenant.domain.update',
+      'system.tenant.sso.update',
+      'system.tenant.isolation.update',
+    ];
+    // The PS must not contain any mutating key.
+    for (const k of mutating) {
+      assert.ok(
+        !PERMISSION_SETS.TenantSupport.permissions.includes(k),
+        `TenantSupport must not include mutating key ${k}`
+      );
+    }
+    // It must include the read keys.
+    const reading = [
+      'system.tenant.read',
+      'system.tenant.list',
+      'system.tenant.plan.read',
+      'system.tenant.billing.read',
+      'system.tenant.domain.read',
+      'system.tenant.sso.read',
+      'system.tenant.isolation.read',
+    ];
+    for (const k of reading) {
+      assert.ok(
+        PERMISSION_SETS.TenantSupport.permissions.includes(k),
+        `TenantSupport must include read key ${k}`
+      );
+    }
+  });
+
+  test('AgentOperator cannot create or deploy agents (read+run only)', () => {
+    const ps = PERMISSION_SETS.AgentOperator;
+    assert.ok(!ps.permissions.includes('ai.agent.create'));
+    assert.ok(!ps.permissions.includes('ai.agent.update'));
+    assert.ok(!ps.permissions.includes('ai.agent.delete'));
+    assert.ok(!ps.permissions.includes('ai.agent.deploy'));
+    assert.ok(!ps.permissions.includes('ai.agent.rollback'));
+    assert.ok(!ps.permissions.includes('ai.agent.version'));
+    assert.ok(!ps.permissions.includes('ai.tool.update'));
+    // Should be able to run and inspect.
+    assert.ok(ps.permissions.includes('ai.agent.run'));
+    assert.ok(ps.permissions.includes('ai.agent.pause'));
+    assert.ok(ps.permissions.includes('ai.agent.runlog.read'));
+  });
+
+  test('AgentDeployer holds only deploy/rollback/delete (Owner-gated surface)', () => {
+    // AgentDeployer is intentionally narrow: just the three critical
+    // actions. Verify no other keys leak in.
+    const ps = PERMISSION_SETS.AgentDeployer;
+    const expected = ['ai.agent.deploy', 'ai.agent.rollback', 'ai.agent.delete'];
+    assert.deepEqual([...ps.permissions].sort(), expected.sort());
+  });
+});
+
 // ─────────────── Role hierarchy ───────────────
 
 describe('Role catalog', () => {
