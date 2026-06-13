@@ -106,25 +106,34 @@
 A1-ERP-HY uses **single-inheritance role hierarchy** à la Salesforce:
 
 ```
-                        Owner
-                          │
-                        Admin
-        ┌───────┬─────────┼─────────┬─────────┬─────────┐
-        │       │         │         │         │         │
-   FinanceLead SalesLead PurchaseLead HRLead  InventoryLead  ProjectLead
-        │       │         │         │         │         │
-   Accountant  SalesMgr  Purchaser  HRSpec  WarehouseClerk ProjectMgr
-        │       │         │                  POSCashier     │
-   Bookkeeper  SalesRep  WarehouseClerk                  ProjectMember
-        │
-   PayrollClerk
+Owner
+└── Admin
+    ├── FinanceLead
+    │   └── Accountant
+    │       ├── Bookkeeper
+    │       └── PayrollClerk
+    ├── SalesLead
+    │   └── SalesManager
+    │       └── SalesRep
+    ├── PurchaseLead
+    │   └── Purchaser
+    ├── HRLead
+    │   └── HRSpecialist
+    ├── InventoryLead
+    │   ├── WarehouseClerk
+    │   └── POSCashier
+    ├── ProjectLead
+    │   ├── ProjectManager
+    │   │   └── ProjectMember
+    │   └── HelpdeskAgent
+    ├── CopilotReviewer       (specialist)
+    ├── ComplianceOfficer     (specialist)
+    ├── Auditor               (specialist)
+    └── Operator
+        └── ServiceManager
 
-   (Specialists branch off Admin)
-   CopilotReviewer · ComplianceOfficer · Auditor
-   Operator → ServiceManager
-
-   (External)
-   CustomerPortal · VendorPortal  (no parent, tenant-scoped only)
+CustomerPortal            (no parent, tenant-scoped only)
+VendorPortal              (no parent, tenant-scoped only)
 ```
 
 Inheritance rules:
@@ -151,7 +160,7 @@ Permissions follow a strict shape:
   export | import | share | assign | run | configure`
 - `scope`: optional, e.g. `own`, `pii`, `fiscal`
 
-Total: **300+ permissions** across 18 categories (system, security,
+Total: **315 permissions** across 18 categories (system, security,
 finance, crm, inv, purchase, pos, hr, projects, desk, docs, portal,
 mrkt, mfg, ai, reports, studio, compliance).
 
@@ -239,7 +248,7 @@ A permission set is a named, reusable bundle of permissions. Examples:
 
 ## 6. Roles
 
-24 system roles seeded on every tenant. New users default to `SalesRep`
+27 system roles seeded on every tenant. New users default to `SalesRep`
 unless the inviter specifies otherwise (`DEFAULT_INVITED_ROLE`).
 
 Each role declares:
@@ -270,8 +279,8 @@ Each role declares:
 
 | Role | Default Permission Sets |
 |---|---|
-| `Owner` | All 38 system sets (including `AuditDeliver`, `AIPowerUser`, `PIIEditor`) |
-| `Admin` | All 38 except `AuditDeliver` + `AIPowerUser` → `AIMutator`, `AIEnabled` |
+| `Owner` | All 39 system sets (including `AuditDeliver`, `AIPowerUser`, `PIIEditor`) |
+| `Admin` | All 39 except `AuditDeliver` + `AIPowerUser` → `AIMutator`, `AIEnabled` |
 | `FinanceLead` | `FinanceOperator`, `FinancePeriodAdmin`, `TaxFiler`, `CRMOperator`, `InventoryOperator`, `PurchaseOperator`, `DocsOperator`, `ReportBuilder`, `AuditOperator`, `AIPowerUser`, `SensitiveDataReader`, `StandardUser` |
 | `SalesLead` | `CRMOperator`, `InventoryOperator`, `DeskOperator`, `DocsOperator`, `ReportBuilder`, `MarketingOperator`, `AIEnabled`, `StandardUser` |
 | `PurchaseLead` | `PurchaseOperator`, `PurchaseAdmin`, `InventoryOperator`, `DocsOperator`, `ReportBuilder`, `FinanceOperator`, `AIEnabled`, `StandardUser` |

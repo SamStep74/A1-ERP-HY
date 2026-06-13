@@ -13,17 +13,17 @@ ERP. Files at `server/rbac/`:
 
 | File | Purpose | Lines |
 |---|---|---|
-| `permissions.js` | 300+ permission keys across 18 categories with sensitivity tags | 459 |
-| `roles.js` | 24 system roles with hierarchy, MFA, session policy, impersonation | 525 |
-| `matrix.js` | 38 system permission sets (named bundles) | 774 |
-| `roleMatrix.js` | Role → permission set map (the bridge) | 205 |
-| `guards.js` | Runtime enforcement (permission, FLS, RLS, session, impersonation) | 380 |
-| `schema.sql` | SQLite tables (catalog mirrors, user assignments, FLS/RLS, audit) | 200 |
-| `seed.js` | Idempotent installer (`seedRBAC(db)`) | 150 |
-| `routes.js` | Fastify admin API (20+ endpoints) | 360 |
-| `index.js` | Public module entry (`rbac.install(app, { db })`) | 90 |
+| `permissions.js` | 315 permission keys across 18 categories with sensitivity tags | 459 |
+| `roles.js` | 27 system roles with hierarchy, MFA, session policy, impersonation | 527 |
+| `matrix.js` | 39 system permission sets (named bundles) | 771 |
+| `roleMatrix.js` | Role → permission set map (the bridge) | 204 |
+| `guards.js` | Runtime enforcement (permission, FLS, RLS, session, impersonation) | 396 |
+| `schema.sql` | SQLite tables (catalog mirrors, user assignments, FLS/RLS, audit) | 268 |
+| `seed.js` | Idempotent installer (`seedRBAC(db)`) | 205 |
+| `routes.js` | Fastify admin API (20+ endpoints) | 374 |
+| `index.js` | Public module entry (`rbac.install(app, { db })`) | 83 |
 
-Documentation at `docs/RBAC_SYSTEM.md` (~400 lines) covers the design,
+Documentation at `docs/RBAC_SYSTEM.md` (~595 lines) covers the design,
 API, migration story, comparison vs Salesforce/NetSuite/Odoo, and the
 operational runbook.
 
@@ -67,9 +67,9 @@ files, all in a single tmux session.
 
 ### 4. Documentation
 
-- `docs/RBAC_SYSTEM.md` — canonical reference (~400 lines, 15 sections)
+- `docs/RBAC_SYSTEM.md` — canonical reference (~595 lines, 15 sections)
 - `docs/PROJECT_STATUS.md` — this file
-- `docs/ERP_COMPARISON_IMPLEMENTATION_PLAN.md` — the 645-line ERP plan
+- `docs/ERP_COMPARISON_IMPLEMENTATION_PLAN.md` — the 644-line ERP plan
   already in the repo (Phase 0–9)
 
 ## What is pending (Phase 0–9 of the ERP plan)
