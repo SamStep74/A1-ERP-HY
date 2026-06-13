@@ -27,11 +27,17 @@ const fs = require('fs');
 const path = require('path');
 const orch = require('./tmux-worktree-orchestrator');
 
-function parseArgs() {
-  const args = process.argv.slice(2);
+/**
+ * Parse CLI arguments. Accepts an explicit argv array (defaults to
+ * `process.argv.slice(2)`) so tests can drive it without forking.
+ *
+ * @param {string[]} [argv]
+ * @returns {{ dryRun: boolean, noTmux: boolean, planPath: string|undefined }}
+ */
+function parseArgs(argv = process.argv.slice(2)) {
   const opts = { dryRun: false, noTmux: false };
   const positional = [];
-  for (const a of args) {
+  for (const a of argv) {
     if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--execute') opts.dryRun = false;
     else if (a === '--no-tmux') opts.noTmux = true;
@@ -59,14 +65,38 @@ function loadPlan(planPath) {
   return { plan, abs };
 }
 
+const VALID_REF = /^[A-Za-z0-9._/-]+$/;
+
 function validatePlan(plan) {
-  if (!plan.sessionName) throw new Error('plan.sessionName is required');
+  if (!plan || typeof plan !== 'object') {
+    throw new Error('plan must be a JSON object');
+  }
+  if (!plan.sessionName || typeof plan.sessionName !== 'string') {
+    throw new Error('plan.sessionName is required (string)');
+  }
+  if (plan.baseRef !== undefined) {
+    if (typeof plan.baseRef !== 'string' || !VALID_REF.test(plan.baseRef)) {
+      throw new Error(`plan.baseRef must be a git ref string (got ${JSON.stringify(plan.baseRef)})`);
+    }
+  }
   if (!Array.isArray(plan.workers) || plan.workers.length === 0) {
     throw new Error('plan.workers must be a non-empty array');
   }
+  const seen = new Set();
   for (const w of plan.workers) {
-    if (!w.name) throw new Error('each worker must have a .name');
-    if (typeof w.task !== 'string') throw new Error(`worker ${w.name}: .task must be a string`);
+    if (!w || typeof w !== 'object') {
+      throw new Error('each worker must be an object');
+    }
+    if (!w.name || typeof w.name !== 'string') {
+      throw new Error('each worker must have a .name (string)');
+    }
+    if (seen.has(w.name)) {
+      throw new Error(`duplicate worker name: ${w.name}`);
+    }
+    seen.add(w.name);
+    if (typeof w.task !== 'string' || w.task.length === 0) {
+      throw new Error(`worker ${w.name}: .task must be a non-empty string`);
+    }
   }
 }
 
@@ -116,9 +146,15 @@ function main() {
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
 }
 
-try {
-  main();
-} catch (err) {
-  process.stderr.write(`ERROR: ${err.message}\n`);
-  process.exit(1);
+// Only run the CLI when invoked directly (`node orchestrate-worktrees.js`).
+// `require()` from tests should just expose the helpers.
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    process.stderr.write(`ERROR: ${err.message}\n`);
+    process.exit(1);
+  }
 }
+
+module.exports = { validatePlan, parseArgs, loadPlan, executePlan, main, printHelp };

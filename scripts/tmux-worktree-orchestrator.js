@@ -61,6 +61,15 @@ function pathExists(p) {
 
 // ───── createWorktree(branchName, baseRef) ─────
 
+/**
+ * Create a git worktree at .claude/worktrees/<branchName>. Idempotent —
+ * if a worktree already exists for the branch, returns its path.
+ *
+ * @param {string} branchName  Name of the branch (and worktree directory).
+ * @param {string} [baseRef='HEAD']  Git ref to branch from if the branch
+ *                                   does not yet exist.
+ * @returns {string} Absolute path to the worktree.
+ */
 function createWorktree(branchName, baseRef = 'HEAD') {
   ensureDir(WORKTREES_DIR);
   const worktreePath = path.join(WORKTREES_DIR, branchName);
@@ -89,6 +98,15 @@ function createWorktree(branchName, baseRef = 'HEAD') {
 
 // ───── overlaySeedPaths(worktreePath, seedPaths) ─────
 
+/**
+ * Copy seed files from the repo root into the worktree. Missing source
+ * paths are silently skipped (allows the same plan to run on a tree
+ * that doesn't yet have every doc).
+ *
+ * @param {string} worktreePath  Absolute path to the worktree.
+ * @param {string[]} [seedPaths]  Repo-root-relative paths to overlay.
+ * @returns {void}
+ */
 function overlaySeedPaths(worktreePath, seedPaths = []) {
   for (const rel of seedPaths) {
     const src = path.join(REPO_ROOT, rel);
@@ -101,6 +119,18 @@ function overlaySeedPaths(worktreePath, seedPaths = []) {
 
 // ───── writeWorkerFiles(worktreePath, sessionName, workerName, task) ─────
 
+/**
+ * Write the per-worker files (task.md, handoff.md, status.md) under
+ * .orchestration/<sessionName>/<workerName>/. task.md is always
+ * overwritten; handoff.md and status.md are only seeded if missing
+ * (so the worker's progress is preserved across re-runs).
+ *
+ * @param {string} worktreePath  Absolute path to the worktree.
+ * @param {string} sessionName  Orchestration session name.
+ * @param {string} workerName  Worker (and branch) name.
+ * @param {string} task  Task body — written verbatim into task.md.
+ * @returns {{ taskPath: string, handoffPath: string, statusPath: string }}
+ */
 function writeWorkerFiles(worktreePath, sessionName, workerName, task) {
   const dir = path.join(ORCH_DIR, sessionName, workerName);
   ensureDir(dir);
@@ -123,6 +153,10 @@ function writeWorkerFiles(worktreePath, sessionName, workerName, task) {
 
 // ───── launchTmuxPane(sessionName, workerName, launcherCommand) ─────
 
+/**
+ * @param {string} sessionName
+ * @returns {boolean} True if the tmux session exists.
+ */
 function sessionExists(sessionName) {
   try {
     tmux(['has-session', '-t', sessionName]);
@@ -132,6 +166,16 @@ function sessionExists(sessionName) {
   }
 }
 
+/**
+ * Launch a new tmux window for a worker, joining an existing session
+ * if one is already running. Substitutes {worktree_path}, {task_file},
+ * {handoff_file}, {status_file}, {repo_root} into the launcher command.
+ *
+ * @param {string} sessionName
+ * @param {string} workerName  Used as the tmux window name.
+ * @param {string} launcherCommand  Shell command with optional placeholders.
+ * @returns {{ session: string, window: string, command: string }}
+ */
 function launchTmuxPane(sessionName, workerName, launcherCommand) {
   if (!sessionExists(sessionName)) {
     tmux(['new-session', '-d', '-s', sessionName, '-n', 'main', '-c', REPO_ROOT]);
@@ -155,6 +199,15 @@ function launchTmuxPane(sessionName, workerName, launcherCommand) {
 
 // ───── capturePaneOutput(sessionName, workerName, lines = 200) ─────
 
+/**
+ * Capture the recent output of a worker's tmux pane. Returns a
+ * placeholder string if tmux fails (e.g. session already killed).
+ *
+ * @param {string} sessionName
+ * @param {string} workerName
+ * @param {number} [lines=200]  Number of trailing lines to capture.
+ * @returns {string}
+ */
 function capturePaneOutput(sessionName, workerName, lines = 200) {
   try {
     return tmux(['capture-pane', '-pt', `${sessionName}:${workerName}`, '-S', `-${lines}`]);
