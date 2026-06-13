@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "aoc",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.js"],
+      "port": 4178,
+      "env": {
+        "PORT": "4178",
+        "ARMOSPHERA_ONE_DB": "/tmp/aoc-preview.sqlite",
+        "ARMOSPHERA_ONE_ALLOW_EGRESS": "0"
+      }
+    }
+  ]
+}

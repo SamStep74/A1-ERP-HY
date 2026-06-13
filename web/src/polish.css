@@ -1,0 +1,75 @@
+/* ============================================================================
+   A1-Suite-Local — polish.css  (imported LAST, after styles.css)
+   Override-only UI polish: resolve undefined tokens, conservative color harmony
+   toward the A1 palette (deep-teal chrome + bright-teal accent + violet product
+   accent + neutral ramp), and text-wrap hardening. Only labels / controls / cells
+   get nowrap — long-form prose stays wrappable.
+   ============================================================================ */
+
+/* --- 1. Resolve undefined custom properties onto the real palette ---------- */
+/* styles.css references var(--text) x85, var(--green) x19, var(--panel) x2 but
+   never defines them, so those colors silently fall through to inherited
+   (often black) / transparent. Alias them to existing tokens. */
+:root {
+  --text: var(--ink);          /* #172322 */
+  --green: var(--teal);        /* #00897b — folds off-base greens onto brand teal */
+  --panel: var(--surface);     /* #ffffff */
+  --violet: rgb(89, 76, 219);  /* Suite product accent, single source of truth */
+}
+
+/* --- 2. Color harmony (conservative): unify the two ad-hoc violets --------- */
+.row.purchase-order.partial {
+  background: color-mix(in srgb, var(--violet) 8%, transparent);
+}
+.pilot-brief-status {
+  background: color-mix(in srgb, var(--violet) 6%, transparent);
+}
+.pilot-brief-actions span {
+  border-color: color-mix(in srgb, var(--violet) 22%, transparent);
+  background: color-mix(in srgb, var(--violet) 6%, transparent);
+}
+
+/* --- 3. Wrap / overflow fixes --------------------------------------------- */
+
+/* Sidebar nav: keep icon fixed, truncate long labels on one line */
+.nav-icon { flex: 0 0 auto; }
+.app-nav button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Brand lockup name + subtitle next to the fixed mark */
+.brand-lockup strong,
+.brand-lockup span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Topbar user pill: cap width, truncate name/role */
+.user-pill span,
+.user-pill strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+
+/* meta-row chips/links: single-line pills */
+.meta-row { min-width: 0; }
+.meta-row span,
+.meta-row a { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Status badges / pills: never wrap (preserves their fixed heights) */
+.aging-badge { white-space: nowrap; }
+.session-card b { white-space: nowrap; }
+.role-dashboard-head strong,
+.security-mfa-head strong,
+.session-governance-head strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Suite group (app picker) labels: truncate on desktop too */
+.suite-group button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Segmented / toggle control labels stay on one line */
+.segmented button { white-space: nowrap; }
+
+/* Timeline rows: let the label shrink, pin the trailing meta */
+.timeline-event > span { min-width: 0; }
+.timeline-event strong { flex: 0 0 auto; }
+
+/* Below 620px styles.css intentionally relaxes labels to wrap; re-assert that so
+   we don't fight the existing mobile reflow. */
+@media (max-width: 620px) {
+  .app-nav button,
+  .suite-group button span,
+  .meta-row span,
+  .meta-row a { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+}

@@ -1,0 +1,40 @@
+{
+  "sessionName": "a1-erp-hy-initial",
+  "description": "First wave: catalog-driven RBAC + dmux-workflows scaffolding + project docs.",
+  "baseRef": "main",
+  "launcherCommand": "bash -lc 'echo \"[worker] {task_file} ready in {worktree_path}\"; echo \"--- handoff: {handoff_file} ---\"; echo \"--- status: {status_file} ---\"; sleep 86400'",
+  "seedPaths": [
+    "docs/ERP_COMPARISON_IMPLEMENTATION_PLAN.md",
+    "docs/RBAC_SYSTEM.md",
+    "docs/DMUX_WORKFLOWS.md",
+    "docs/PROJECT_STATUS.md",
+    "server/rbac/permissions.js",
+    "server/rbac/roles.js",
+    "server/rbac/matrix.js",
+    "server/rbac/roleMatrix.js",
+    "server/rbac/guards.js",
+    "server/rbac/schema.sql",
+    "server/rbac/seed.js",
+    "server/rbac/routes.js",
+    "server/rbac/index.js",
+    "test/rbac.test.js",
+    "scripts/orchestrate-worktrees.js",
+    "scripts/tmux-worktree-orchestrator.js",
+    ".orchestration/README.md",
+    ".orchestration/a1-erp-hy-initial.json"
+  ],
+  "workers": [
+    {
+      "name": "rbac-catalog",
+      "task": "Audit the RBAC catalogs for completeness:\n  - server/rbac/permissions.js (300+ keys, 18 categories)\n  - server/rbac/roles.js (24 system roles, hierarchy, MFA, sessions)\n  - server/rbac/matrix.js (38 permission sets)\n  - server/rbac/roleMatrix.js (role → PS map)\n  - server/rbac/guards.js (FLS, RLS, session, impersonation)\nRun the test suite: `node --test test/rbac.test.js` and confirm 45/45 pass.\nAdd new permission keys or sets for: manufacturing (mfg.*), marketing automation (mrkt.*), compliance (compliance.*), AI agents (ai.agent.*), and tenant management. Keep Owner implicit-all and Admin restricted. Add tests for every new key. Commit, then write handoff.md describing what you added and which tests pass."
+    },
+    {
+      "name": "dmux-workflows",
+      "task": "Build the dmux-style orchestration scaffolding for A1-ERP-HY:\n  - scripts/tmux-worktree-orchestrator.js (shared helper: createWorktree, overlaySeedPaths, writeWorkerFiles, launchTmuxPane, capturePaneOutput, killSession)\n  - scripts/orchestrate-worktrees.js (CLI runner that reads a plan.json, validates it, creates worktrees, writes per-worker task/handoff/status files, and launches tmux panes)\n  - .orchestration/README.md (plan.json schema, placeholders, usage)\n  - docs/DMUX_WORKFLOWS.md (operational guide, patterns in use, recovery, cleanup)\nSupport flags: --dry-run, --execute, --no-tmux. Validate the plan schema (sessionName, baseRef, workers[].name, workers[].task). Make all helpers idempotent. Commit, then write handoff.md describing the file layout, the API surface, and an example invocation."
+    },
+    {
+      "name": "docs-and-status",
+      "task": "Write the canonical project documentation:\n  - docs/RBAC_SYSTEM.md (15 sections: goals, concepts, hierarchy, catalog, permission sets, roles, sensitivity & MFA, FLS, RLS, session & impersonation, API reference, custom roles, migration, comparison with Salesforce/NetSuite/Odoo, operational runbook)\n  - docs/PROJECT_STATUS.md (snapshot of the first wave: RBAC stack, test results, dmux scaffolding, pending phases 0–9, open questions, how to run the test suite, how to use the RBAC module)\n  - .orchestration/a1-erp-hy-initial.json (first-wave plan: 3 workers, seedPaths, baseRef, launcherCommand)\nBoth docs should be readable standalone and cross-link to each other and to docs/ERP_COMPARISON_IMPLEMENTATION_PLAN.md. Commit, then write handoff.md with a table of contents for both docs."
+    }
+  ]
+}

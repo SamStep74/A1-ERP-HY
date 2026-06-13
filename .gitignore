@@ -1,0 +1,42 @@
+# A1 ERP-HY .gitignore
+
+# SQLite databases and WAL
+*.db
+*.db-shm
+*.db-wal
+data/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# macOS
+.DS_Store
+
+# Node
+node_modules
+npm-debug.log*
+
+# Vite build output
+public/
+dist/
+web/dist/
+
+# Reports / logs
+reports/
+deploy/*.log
+*.log
+
+# Worktrees and runtime orchestration
+.claude/worktrees/
+.claude/.session-*
+
+# Local environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

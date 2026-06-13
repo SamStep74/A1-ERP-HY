@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.armosphera.one</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__ROOT__/server/index.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PORT</key><string>__PORT__</string>
+    <key>NODE_ENV</key><string>production</string>
+  </dict>
+  <key>WorkingDirectory</key><string>__ROOT__</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__ROOT__/deploy/armosphera-one.out.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/deploy/armosphera-one.err.log</string>
+</dict>
+</plist>
