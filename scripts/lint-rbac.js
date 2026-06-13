@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+// scripts/lint-rbac.js
+//
+// RBAC lint. Walks a set of source roots and flags:
+//
+//   1. Direct role checks that don't go through rbac.guards.
+//      Detects patterns like:
+//        req.user.role === 'Owner'
+//        user.role !== "Admin"
+//        ["Owner","Admin"].includes(user.role)
+//
+//   2. requirePerm(...) / requireAnyPerm(...) calls with an unknown
+//      permission key (i.e. not in PERMISSIONS).
+//
+//   3. Sensitive field paths that appear in route return-shapes but
+//      are NOT covered by FLS_RULES. (Heuristic: scan response literal
+//      objects for top-level keys like tax_id / account_number; warn if
+//      a redact path that would cover them is missing.)
+//
+// Usage:
+//   node scripts/lint-rbac.js [--roots=server/rbac,server/migration] [--quiet] [--no-fail]
+//
+// Exits 0 on a clean run, 1 on any finding (unless --no-fail).
+//
+// Wired into `npm test` so the rule is enforced on every CI run.
+
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const {
+  PERMISSIONS,
+  isValidKey,
+} = require('../server/rbac/permissions');
+const { FLS_RULES } = require('../server/rbac/guards');
+
+// ───────────── CLI args ─────────────
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const m = args.find((a) => a.startsWith(`--${name}=`));
+  return m ? m.slice(name.length + 3) : null;
+};
+const boolFlag = (name) => args.includes(`--${name}`);
+
+const rootsArg = flag('roots');
+const quiet = boolFlag('quiet');
+const noFail = boolFlag('no-fail');
+
+const DEFAULT_ROOTS = ['server/rbac', 'server/migration-stubs'];
+const roots = (rootsArg ? rootsArg.split(',') : DEFAULT_ROOTS).map((p) => path.resolve(p));
+
+// ───────────── Walk ─────────────
+function* walkFiles(root) {
+  if (!fs.existsSync(root)) return;
+  const stat = fs.statSync(root);
+  if (stat.isFile()) {
+    if (/\.(js|jsx|mjs|cjs)$/.test(root)) yield root;
+    return;
+  }
+  for (const dirent of fs.readdirSync(root, { withFileTypes: true })) {
+    const child = path.join(root, dirent.name);
+    if (dirent.isDirectory()) {
+      if (['node_modules', '.git', 'dist', 'build', 'coverage'].includes(dirent.name)) continue;
+      yield* walkFiles(child);
+    } else if (/\.(js|jsx|mjs|cjs)$/.test(dirent.name)) {
+      yield child;
+    }
+  }
+}
+
+// ───────────── Patterns ─────────────
+//
+// Direct role-check patterns we want to flag. The matchers are intentionally
+// strict: they look for `user.role` / `request.user.role` / `req.user.role`
+// combined with a comparison or `.includes(`. The lint is the source of
+// truth for "you didn't go through rbac.guards".
+//
+// Allowlist mechanism: a line that contains the marker
+//     // rbac-lint: allow-role-check
+// is skipped. This is used by the system internals in server/rbac/ where
+// role checks are part of the catalog implementation itself.
+const ROLE_CHECK_ALLOW_MARKER = 'rbac-lint: allow-role-check';
+
+const DIRECT_ROLE_PATTERNS = [
+  // user.role === 'X'  /  user.role !== "X"
+  /\b(?:request\.|req\.)?user\.role\s*(?:===|!==|==|!=)\s*['"][A-Za-z][A-Za-z _-]*['"]/,
+  // ["X","Y"].includes(user.role)
+  /\[\s*['"][A-Za-z][A-Za-z _-]*['"](?:\s*,\s*['"][A-Za-z][A-Za-z _-]*['"])*\s*\]\.includes\(\s*(?:request\.|req\.)?user\.role\b/,
+  // user.role === somethingVariable — flag any `user.role === X` even if X is a variable
+  /\b(?:request\.|req\.)?user\.role\s*(?:===|!==|==|!=)\s*[A-Za-z_$][A-Za-z0-9_$.]*/,
+];
+
+// requirePerm / requireAnyPerm call extractor. Captures the first string
+// argument to the call.
+const REQUIRE_PERM_RE = /\brequire(?:Any)?Perm(?:WithSensitivity)?\s*\(\s*(['"])([^'"]+)\1/g;
+
+// Field paths known to be sensitive. The lint scans for raw key mentions
+// inside object literals; if a key like `tax_id` appears and FLS_RULES
+// has a rule for the matching dotted path, that rule must be applied via
+// `redactFields(...)` somewhere in the file. If a sensitive key appears
+// in a return object but no redact call covers it, the lint flags.
+const SENSITIVE_KEY_TO_RULE = {
+  'tax_id':         'crm.account.tax_id',
+  'account_number': 'finance.bank.account_number',
+  'routing':        'finance.bank.routing',
+  'ssn':            'hr.employee.ssn',
+  'bank_account':   'hr.employee.bank_account',
+  'medical_notes':  'hr.employee.medical_notes',
+  'password_hash':  'security.user.password_hash',
+  'mfa_secret':     'security.user.mfa_secret',
+};
+
+// ───────────── Findings ─────────────
+const findings = [];
+
+function record(severity, file, line, message) {
+  findings.push({ severity, file, line, message });
+}
+
+function lintFile(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  const lines = text.split(/\r?\n/);
+
+  // 1. Direct role checks.
+  lines.forEach((line, i) => {
+    // Allow explicit allowlist marker (used by system internals in server/rbac/).
+    if (line.includes(ROLE_CHECK_ALLOW_MARKER)) return;
+    // Allow comments to mention the pattern (e.g. // before: req.user.role === 'Owner')
+    const stripped = line.replace(/\/\/.*$/, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const pat of DIRECT_ROLE_PATTERNS) {
+      if (pat.test(stripped)) {
+        record(
+          'ERROR',
+          file,
+          i + 1,
+          `Direct role check detected: ${stripped.trim()}. Use requirePerm(...) / requireAnyPerm(...) from server/rbac.`
+        );
+        break;
+      }
+    }
+  });
+
+  // 2. requirePerm(...) with unknown keys.
+  let m;
+  REQUIRE_PERM_RE.lastIndex = 0;
+  while ((m = REQUIRE_PERM_RE.exec(text)) !== null) {
+    const key = m[2];
+    if (!isValidKey(key)) {
+      // Find the line number for nicer reporting.
+      const upto = text.slice(0, m.index);
+      const line = upto.split(/\n/).length;
+      record(
+        'ERROR',
+        file,
+        line,
+        `requirePerm('${key}') — key is not in the PERMISSIONS catalog. Add it to server/rbac/permissions.js first.`
+      );
+    }
+  }
+
+  // 3. Sensitive fields without FLS coverage.
+  for (const [sensitiveKey, rulePath] of Object.entries(SENSITIVE_KEY_TO_RULE)) {
+    if (!FLS_RULES[rulePath]) continue; // catalog gap — not our problem here
+    const keyRe = new RegExp(`(?:^|[^A-Za-z0-9_])${sensitiveKey}\\s*:`, 'm');
+    if (!keyRe.test(text)) continue;
+    // If the file mentions the sensitive key, it should call redactFields
+    // with the matching dotted path somewhere. We accept either:
+    //   - explicit redactFields(... 'dot.path' ...) call, or
+    //   - a STUB_REDACT_PATHS constant that includes the dot path.
+    const pathNeedle = `'${rulePath}'`;
+    const pathNeedleDouble = `"${rulePath}"`;
+    const hasRedactCall = /redactFields\s*\(/.test(text) &&
+      (text.includes(pathNeedle) || text.includes(pathNeedleDouble));
+    if (!hasRedactCall) {
+      record(
+        'WARN',
+        file,
+        0,
+        `Sensitive key '${sensitiveKey}' appears in a return literal but no redactFields(...) call covers FLS path '${rulePath}'. Either add a redactFields call or remove the sensitive field from the stub.`
+      );
+    }
+  }
+}
+
+// ───────────── Run ─────────────
+let scanned = 0;
+for (const root of roots) {
+  for (const file of walkFiles(root)) {
+    scanned += 1;
+    lintFile(file);
+  }
+}
+
+const errors = findings.filter((f) => f.severity === 'ERROR');
+const warnings = findings.filter((f) => f.severity === 'WARN');
+
+if (!quiet) {
+  console.log(`RBAC lint: scanned ${scanned} file(s) under ${roots.map((r) => path.relative(process.cwd(), r) || '.').join(', ')}`);
+  if (findings.length === 0) {
+    console.log('  ✓ clean — no direct role checks, no unknown permission keys, no unhandled sensitive fields.');
+  } else {
+    for (const f of findings) {
+      const rel = path.relative(process.cwd(), f.file);
+      const loc = f.line > 0 ? `${rel}:${f.line}` : rel;
+      console.log(`  ${f.severity}  ${loc}  ${f.message}`);
+    }
+    console.log(`  ${errors.length} error(s), ${warnings.length} warning(s).`);
+  }
+}
+
+if (errors.length > 0 && !noFail) {
+  process.exit(1);
+}
+process.exit(0);

@@ -55,7 +55,7 @@ function resolveEffectivePermissions(user) {
   // 4. Owner is the super-user and implicitly holds every permission. This
   //    is the ONLY implicit-all shortcut. Admin gets its powers explicitly
   //    through its role matrix (e.g. SystemAdmin PS).
-  if (user.role === 'Owner') {
+  if (user.role === 'Owner') { // rbac-lint: allow-role-check — system shortcut
     for (const k of Object.keys(PERMISSIONS)) keys.add(k);
   }
   user._effectivePermissions = keys;
@@ -255,12 +255,12 @@ function recordLevelClause(user, resource, opts = {}) {
   const scope = opts.scopeOverride || (rule ? rule.defaultScope : 'org');
 
   // Owner / Admin see everything across the org.
-  if (user.role === 'Owner' || user.role === 'Admin') {
+  if (user.role === 'Owner' || user.role === 'Admin') { // rbac-lint: allow-role-check — RLS super-user shortcut
     return { clause: '', params: [] };
   }
 
   // Portal users are always tenant-scoped.
-  if (user.role === 'CustomerPortal' || user.role === 'VendorPortal') {
+  if (user.role === 'CustomerPortal' || user.role === 'VendorPortal') { // rbac-lint: allow-role-check — RLS portal branch
     return {
       clause: `${resourcePrimaryKey(resource)} IN (SELECT id FROM ${resourceTable(resource)} WHERE tenant_id = ?)`,
       params: [user.tenant_id || user.org_id || 0],
