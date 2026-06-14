@@ -33,6 +33,12 @@ const ROLE_MATRIX = Object.freeze({
     'PeopleWriter', 'AccessReviewer', 'SessionReader', 'SessionAdmin',
     'AuditReader', 'AuditExportWriter', 'DealCreator', 'QuoteSender',
     'JournalWriter', 'IntegrationsReader',
+    // Wave 7 narrow-grant perm sets — mirror the legacy requirePurchaseReader /
+    // requirePurchaseWriter / requireFinanceOperator allow-lists for the
+    // 9 purchase + finance routes flagged in wave7-plan.md.
+    'PurchaseVendorReader', 'PurchaseOrderReader', 'PurchaseAnalyticsReader',
+    'PurchaseVendorWriter', 'PurchaseOrderWriter', 'PurchaseReceiptWriter', 'PurchaseReturnWriter',
+    'FinanceBillWriter',
   ]),
   Admin:           Object.freeze([
     'SystemAdmin', 'UserAdmin', 'SecurityAdmin', 'ComplianceOperator', 'RetentionAdmin',
@@ -47,6 +53,12 @@ const ROLE_MATRIX = Object.freeze({
     'PeopleWriter', 'AccessReviewer', 'SessionReader', 'SessionAdmin',
     'AuditReader', 'AuditExportWriter', 'DealCreator', 'QuoteSender',
     'JournalWriter', 'IntegrationsReader',
+    // Wave 7 narrow-grant perm sets — mirror the legacy requirePurchaseReader /
+    // requirePurchaseWriter / requireFinanceOperator allow-lists for the
+    // 9 purchase + finance routes flagged in wave7-plan.md.
+    'PurchaseVendorReader', 'PurchaseOrderReader', 'PurchaseAnalyticsReader',
+    'PurchaseVendorWriter', 'PurchaseOrderWriter', 'PurchaseReceiptWriter', 'PurchaseReturnWriter',
+    'FinanceBillWriter',
   ]),
 
   // ───────── Functional leads ─────────
@@ -95,6 +107,13 @@ const ROLE_MATRIX = Object.freeze({
     // - JournalWriter:  requireFinanceOperator   (Owner, Admin, Accountant)
     // - QuoteSender:    requireCollectionEditor  (Owner, Admin, Operator, Salesperson, Service Manager, Accountant)
     'PeopleWriter', 'JournalWriter', 'QuoteSender',
+    // Wave 7 narrow-grant perm sets — mirror the legacy requirePurchaseReader /
+    // requirePurchaseWriter / requireFinanceOperator allow-lists (Owner, Admin,
+    // Operator, Accountant, Auditor for reads; Owner, Admin, Operator,
+    // Accountant for writes; Owner, Admin, Accountant for FinanceBillWriter).
+    'PurchaseVendorReader', 'PurchaseOrderReader', 'PurchaseAnalyticsReader',
+    'PurchaseVendorWriter', 'PurchaseOrderWriter', 'PurchaseReceiptWriter', 'PurchaseReturnWriter',
+    'FinanceBillWriter',
   ]),
   Bookkeeper:      Object.freeze([
     'FinanceOperator', 'CRMOperator', 'DocsOperator', 'StandardUser',
@@ -168,6 +187,11 @@ const ROLE_MATRIX = Object.freeze({
     // - AuditReader:       requireAuditReader      (Owner, Admin, Auditor)
     // - IntegrationsReader: requireIntegrationReader (Owner, Admin, Auditor)
     'AccessReviewer', 'SessionReader', 'AuditReader', 'IntegrationsReader',
+    // Wave 7 narrow-grant perm sets — mirror the legacy requirePurchaseReader
+    // allow-list (Owner, Admin, Operator, Accountant, Auditor). Auditor is
+    // read-only by design, so it only gets the 3 read perm sets; the
+    // 4 write perm sets and FinanceBillWriter are intentionally omitted.
+    'PurchaseVendorReader', 'PurchaseOrderReader', 'PurchaseAnalyticsReader',
   ]),
 
   // ───────── Operator / service ─────────
@@ -176,6 +200,11 @@ const ROLE_MATRIX = Object.freeze({
     // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
     // requireCollectionEditor allow-lists.
     'DealCreator', 'QuoteSender',
+    // Wave 7 narrow-grant perm sets — mirror the legacy requirePurchaseReader /
+    // requirePurchaseWriter allow-lists (Owner, Admin, Operator, Accountant, Auditor
+    // for reads; Owner, Admin, Operator, Accountant for writes).
+    'PurchaseVendorReader', 'PurchaseOrderReader', 'PurchaseAnalyticsReader',
+    'PurchaseVendorWriter', 'PurchaseOrderWriter', 'PurchaseReceiptWriter', 'PurchaseReturnWriter',
   ]),
   ServiceManager:  Object.freeze([
     'DeskOperator', 'DeskAdmin', 'CRMOperator', 'DocsOperator', 'ReportBuilder', 'AIEnabled', 'StandardUser',
