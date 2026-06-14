@@ -289,6 +289,9 @@ const PERMISSION_SETS = Object.freeze({
       'crm.pipeline.read',
       'crm.pipeline.update',
       'crm.customer_360.read',
+      'sales.order.read',
+      'sales.order.create',
+      'sales.order.update',
     ]),
   },
 
@@ -915,6 +918,7 @@ const PERMISSION_SETS = Object.freeze({
       'crm.activity.read',
       'crm.pipeline.read',
       'crm.customer_360.read',
+      'sales.order.read',
       'inv.product.read',
       'inv.warehouse.read',
       'inv.stock.read',
@@ -1066,6 +1070,16 @@ const PERMISSION_SETS = Object.freeze({
     isSystem: true,
     permissions: Object.freeze([
       'crm.deal.create',
+    ]),
+  },
+
+  SalesOrderDeleter: {
+    id: 'SalesOrderDeleter',
+    label: 'Sales Order Deleter',
+    description: 'Delete sales orders. Narrow grant — only Owner, Admin (mirrors the legacy requireCrmEditor allow-list for the destructive sales-order.delete perm).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'sales.order.delete',
     ]),
   },
 

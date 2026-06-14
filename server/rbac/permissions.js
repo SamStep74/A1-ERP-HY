@@ -187,6 +187,15 @@ const PERMISSIONS = Object.freeze({
   'crm.quote.send':             { category: 'crm', sensitivity: 'medium',  label: 'Send quote',           description: 'Send quote to customer.' },
   'crm.quote.release':          { category: 'crm', sensitivity: 'high',    label: 'Release quote',        description: 'Release a quote that requires approval.' },
   'crm.quote.accept':           { category: 'crm', sensitivity: 'medium',  label: 'Accept quote',         description: 'Mark a quote as accepted by the customer.' },
+  // ───────────── Sales Orders (post-acceptance) ─────────────
+  // Distinct from `deals` (CRM pipeline, pre-acceptance) and `quotes` (pricing
+  // documents). A sales order is the post-acceptance supply chain primitive:
+  // it tracks fulfillment, billing, and shipping. Stock reservation is wired
+  // in Phase 1; auto-invoicing on fulfillment is Phase 1 too.
+  'sales.order.read':           { category: 'crm', sensitivity: 'low',     label: 'View sales orders',    description: 'View sales orders and their lines.' },
+  'sales.order.create':         { category: 'crm', sensitivity: 'medium',  label: 'Create sales order',   description: 'Create a sales order (from a deal, a quote, or manually).' },
+  'sales.order.update':         { category: 'crm', sensitivity: 'medium',  label: 'Edit sales order',     description: 'Edit, confirm, cancel, or modify lines on a sales order.' },
+  'sales.order.delete':         { category: 'crm', sensitivity: 'high',    label: 'Delete sales order',   description: 'Delete a sales order (typically only in draft state).' },
   'crm.activity.read':          { category: 'crm', sensitivity: 'low',     label: 'View activities',      description: 'View activities (calls, meetings, tasks).' },
   'crm.activity.create':        { category: 'crm', sensitivity: 'low',     label: 'Log activity',         description: 'Log a call, meeting, or task.' },
   'crm.activity.update':        { category: 'crm', sensitivity: 'low',     label: 'Edit activity',        description: 'Edit logged activities.' },

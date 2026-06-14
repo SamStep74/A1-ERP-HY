@@ -523,6 +523,127 @@ function registerApi(app, db, options = {}) {
     return { ok: true, item };
   });
 
+  // ───────── Sales Orders (post-quote-acceptance supply chain primitive) ─────────
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager, Accountant, Auditor
+  app.get("/api/sales/orders", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.read")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderReader(user);
+    const filters = normalizeSalesOrderListQuery(request.query || {});
+    return { orders: getSalesOrders(db, user.org_id, filters) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager, Accountant, Auditor
+  app.get("/api/sales/orders/:id", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.read")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderReader(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    const order = getSalesOrder(db, user.org_id, orderId);
+    if (!order) { const err = new Error("Sales order not found"); err.statusCode = 404; throw err; }
+    return { order };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.post("/api/sales/orders", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.create")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    return { ok: true, order: createSalesOrder(db, user, request.body === undefined ? {} : request.body) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.patch("/api/sales/orders/:id", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.update")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    return { ok: true, order: updateSalesOrder(db, user, orderId, request.body === undefined ? {} : request.body) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.post("/api/sales/orders/:id/confirm", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.update")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    return { ok: true, order: confirmSalesOrder(db, user, orderId) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.post("/api/sales/orders/:id/cancel", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.update")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    return { ok: true, order: cancelSalesOrder(db, user, orderId) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.post("/api/sales/orders/:id/lines", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.update")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    return { ok: true, line: addSalesOrderLine(db, user, orderId, request.body === undefined ? {} : request.body) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.patch("/api/sales/orders/:id/lines/:lineId", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.update")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    const lineId = normalizeSalesOrderLinePathId(request.params.lineId);
+    return { ok: true, line: updateSalesOrderLine(db, user, orderId, lineId, request.body === undefined ? {} : request.body) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+  app.delete("/api/sales/orders/:id/lines/:lineId", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("sales.order.update")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireSalesOrderWriter(user);
+    const orderId = normalizeSalesOrderPathId(request.params.id);
+    const lineId = normalizeSalesOrderLinePathId(request.params.lineId);
+    return { ok: true, line: deleteSalesOrderLine(db, user, orderId, lineId) };
+  });
+
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/inventory/locations", async request => {
     const user = await app.auth(request);
@@ -7929,6 +8050,24 @@ function requireCrmEditor(user) {
 function requireCatalogReader(user) {
   if (!["Owner", "Admin", "Operator", "Salesperson", "Accountant", "Service Manager"].includes(user.role)) {
     const err = new Error("Catalog reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+// rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager, Accountant, Auditor
+function requireSalesOrderReader(user) {
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant", "Auditor"].includes(user.role)) {
+    const err = new Error("Sales order reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+// rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
+function requireSalesOrderWriter(user) {
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
+    const err = new Error("Sales order writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -59901,6 +60040,666 @@ function safeJson(value) {
   } catch {
     return [];
   }
+}
+
+// ───────────── Sales Orders (post-quote-acceptance supply chain primitive) ─────────────
+// Distinct from `deals` (CRM pipeline, pre-acceptance) and `quotes` (pricing documents).
+// A sales order is the post-acceptance supply chain record: it tracks fulfillment,
+// billing, and shipping. Stock reservation is wired in Phase 1; auto-invoicing on
+// fulfillment is Phase 1 too. The helpers below form the thin, RBAC-gated data
+// access layer used by the /api/sales/orders routes above.
+
+// Armenia VAT rates by vat_class. 'standard' is the 20% rate defined by RA Tax
+// Code Article 63; 'reduced' maps to the 10% reduced rate (food, medicine, etc.)
+// used in the current e-invoice VAT return workpaper; 'zero' and 'exempt' map
+// to 0% (export, financial services) per the same article.
+const SALES_ORDER_VAT_RATES = Object.freeze({
+  standard: 20,
+  reduced: 10,
+  zero: 0,
+  exempt: 0,
+});
+
+function salesOrderVatRate(vatClass) {
+  if (Object.prototype.hasOwnProperty.call(SALES_ORDER_VAT_RATES, vatClass)) {
+    return SALES_ORDER_VAT_RATES[vatClass];
+  }
+  return SALES_ORDER_VAT_RATES.standard;
+}
+
+const SALES_ORDER_FULFILLMENT_STATUSES = Object.freeze([
+  'draft', 'reserved', 'picking', 'packed', 'shipped', 'delivered', 'cancelled',
+]);
+const SALES_ORDER_BILLING_STATUSES = Object.freeze([
+  'unbilled', 'partial', 'invoiced', 'paid', 'written_off',
+]);
+const SALES_ORDER_LINE_FULFILLMENT_STATUSES = Object.freeze([
+  'pending', 'reserved', 'picked', 'shipped', 'cancelled',
+]);
+
+const FULFILLMENT_ORDER = Object.freeze({
+  draft: 0, reserved: 1, picking: 2, packed: 3, shipped: 4, delivered: 5, cancelled: 6,
+});
+
+function isTerminalFulfillmentStatus(status) {
+  return status === 'delivered' || status === 'cancelled';
+}
+
+function throwInvalidSalesOrder(message, code = 'invalid_sales_order') {
+  const err = new Error(message);
+  err.statusCode = 400;
+  err.code = code;
+  throw err;
+}
+
+function normalizeSalesOrderPathId(value) {
+  const id = String(value == null ? '' : value).trim();
+  if (!id || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) throwInvalidSalesOrder("Sales order id is malformed");
+  return id;
+}
+
+function normalizeSalesOrderLinePathId(value) {
+  const id = String(value == null ? '' : value).trim();
+  if (!id || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) throwInvalidSalesOrder("Sales order line id is malformed");
+  return id;
+}
+
+function normalizeSalesOrderListQuery(query) {
+  const out = { customerId: "", fulfillmentStatus: "", billingStatus: "", dateFrom: "", dateTo: "" };
+  if (query && typeof query === "object") {
+    if (typeof query.customerId === "string") out.customerId = query.customerId.trim();
+    if (typeof query.fulfillmentStatus === "string") out.fulfillmentStatus = query.fulfillmentStatus.trim();
+    if (typeof query.billingStatus === "string") out.billingStatus = query.billingStatus.trim();
+    if (typeof query.dateFrom === "string") out.dateFrom = query.dateFrom.trim();
+    if (typeof query.dateTo === "string") out.dateTo = query.dateTo.trim();
+  }
+  if (out.fulfillmentStatus && !SALES_ORDER_FULFILLMENT_STATUSES.includes(out.fulfillmentStatus)) {
+    throwInvalidSalesOrder("Unknown fulfillment_status filter");
+  }
+  if (out.billingStatus && !SALES_ORDER_BILLING_STATUSES.includes(out.billingStatus)) {
+    throwInvalidSalesOrder("Unknown billing_status filter");
+  }
+  if (out.dateFrom && !/^\d{4}-\d{2}-\d{2}$/.test(out.dateFrom)) {
+    throwInvalidSalesOrder("dateFrom must be YYYY-MM-DD");
+  }
+  if (out.dateTo && !/^\d{4}-\d{2}-\d{2}$/.test(out.dateTo)) {
+    throwInvalidSalesOrder("dateTo must be YYYY-MM-DD");
+  }
+  return out;
+}
+
+function nextSalesOrderNumber(db, orgId, orderDate) {
+  // Format: SO-YYYY-NNNNNN (e.g. SO-2026-000001). Per-org-id, per-year counter.
+  const year = (orderDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
+  const prefix = `SO-${year}-`;
+  const lastRow = db.prepare(`
+    SELECT order_number FROM sales_orders
+    WHERE org_id = ? AND order_number LIKE ?
+    ORDER BY order_number DESC LIMIT 1
+  `).get(orgId, `${prefix}%`);
+  let n = 1;
+  if (lastRow && typeof lastRow.order_number === "string" && lastRow.order_number.startsWith(prefix)) {
+    const tail = lastRow.order_number.slice(prefix.length);
+    const parsed = parseInt(tail, 10);
+    if (Number.isFinite(parsed) && parsed > 0) n = parsed + 1;
+  }
+  return `${prefix}${String(n).padStart(6, "0")}`;
+}
+
+function assertSalesOrderCustomerExists(db, orgId, customerId) {
+  if (!customerId) throwInvalidSalesOrder("customerId is required");
+  const row = db.prepare("SELECT id FROM customers WHERE id = ? AND org_id = ?").get(customerId, orgId);
+  if (!row) throwInvalidSalesOrder("Customer not found");
+}
+
+function assertSalesOrderDealExists(db, orgId, dealId) {
+  if (!dealId) return;
+  const row = db.prepare("SELECT id FROM deals WHERE id = ? AND org_id = ?").get(dealId, orgId);
+  if (!row) throwInvalidSalesOrder("Deal not found");
+}
+
+function assertSalesOrderQuoteExists(db, orgId, quoteId) {
+  if (!quoteId) return;
+  const row = db.prepare("SELECT id FROM quotes WHERE id = ? AND org_id = ?").get(quoteId, orgId);
+  if (!row) throwInvalidSalesOrder("Quote not found");
+}
+
+function assertSalesOrderOrderNumberAvailable(db, orgId, orderNumber, excludeId = "") {
+  const row = db.prepare(
+    "SELECT id FROM sales_orders WHERE org_id = ? AND order_number = ? AND id != ?"
+  ).get(orgId, orderNumber, excludeId);
+  if (row) {
+    const err = new Error("order_number is already in use");
+    err.statusCode = 409;
+    err.code = "sales_order_number_in_use";
+    throw err;
+  }
+}
+
+function formatSalesOrder(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    dealId: row.deal_id,
+    quoteId: row.quote_id,
+    customerId: row.customer_id,
+    orderNumber: row.order_number,
+    orderDate: row.order_date,
+    requestedDeliveryDate: row.requested_delivery_date,
+    currency: row.currency,
+    subtotal: row.subtotal,
+    vatTotal: row.vat_total,
+    total: row.total,
+    fulfillmentStatus: row.fulfillment_status,
+    billingStatus: row.billing_status,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function formatSalesOrderLine(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    salesOrderId: row.sales_order_id,
+    lineNumber: row.line_number,
+    catalogItemId: row.catalog_item_id,
+    catalogVariantId: row.catalog_variant_id,
+    description: row.description,
+    quantity: row.quantity,
+    unit: row.unit,
+    unitPriceMinor: row.unit_price_minor,
+    discountPercent: row.discount_percent,
+    vatClass: row.vat_class,
+    lineTotal: row.line_total,
+    vatAmount: row.vat_amount,
+    fulfillmentStatus: row.fulfillment_status,
+    createdAt: row.created_at,
+  };
+}
+
+function computeLineTotalMinor(quantity, unitPriceMinor, discountPercent) {
+  const gross = Math.round(quantity * unitPriceMinor);
+  const discount = Math.round(gross * (discountPercent / 100));
+  return Math.max(0, gross - discount);
+}
+
+function computeLineVatAmountMinor(lineTotalMinor, vatClass) {
+  const rate = salesOrderVatRate(vatClass);
+  return Math.round(lineTotalMinor * (rate / 100));
+}
+
+function recomputeSalesOrderTotals(db, orgId, orderId) {
+  const totals = db.prepare(`
+    SELECT COALESCE(SUM(line_total), 0) AS subtotal,
+           COALESCE(SUM(vat_amount), 0) AS vat_total
+    FROM sales_order_lines
+    WHERE org_id = ? AND sales_order_id = ?
+  `).get(orgId, orderId);
+  const subtotal = Number(totals.subtotal) || 0;
+  const vatTotal = Number(totals.vat_total) || 0;
+  const total = subtotal + vatTotal;
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE sales_orders
+    SET subtotal = ?, vat_total = ?, total = ?, updated_at = ?
+    WHERE org_id = ? AND id = ?
+  `).run(subtotal, vatTotal, total, now, orgId, orderId);
+  return { subtotal, vatTotal, total };
+}
+
+function getSalesOrderLines(db, orgId, orderId) {
+  return db.prepare(`
+    SELECT * FROM sales_order_lines
+    WHERE org_id = ? AND sales_order_id = ?
+    ORDER BY line_number ASC
+  `).all(orgId, orderId).map(formatSalesOrderLine);
+}
+
+function getSalesOrders(db, orgId, filters = {}) {
+  const where = ["sales_orders.org_id = ?"];
+  const params = [orgId];
+  if (filters.customerId) {
+    where.push("sales_orders.customer_id = ?");
+    params.push(filters.customerId);
+  }
+  if (filters.fulfillmentStatus) {
+    where.push("sales_orders.fulfillment_status = ?");
+    params.push(filters.fulfillmentStatus);
+  }
+  if (filters.billingStatus) {
+    where.push("sales_orders.billing_status = ?");
+    params.push(filters.billingStatus);
+  }
+  if (filters.dateFrom) {
+    where.push("sales_orders.order_date >= ?");
+    params.push(filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    where.push("sales_orders.order_date <= ?");
+    params.push(filters.dateTo);
+  }
+  return db.prepare(`
+    SELECT sales_orders.*, customers.name AS customer_name
+    FROM sales_orders
+    LEFT JOIN customers ON customers.id = sales_orders.customer_id
+      AND customers.org_id = sales_orders.org_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY sales_orders.order_date DESC, sales_orders.order_number DESC
+  `).all(...params).map(formatSalesOrder);
+}
+
+function getSalesOrder(db, orgId, orderId) {
+  const row = db.prepare(`
+    SELECT sales_orders.*, customers.name AS customer_name
+    FROM sales_orders
+    LEFT JOIN customers ON customers.id = sales_orders.customer_id
+      AND customers.org_id = sales_orders.org_id
+    WHERE sales_orders.org_id = ? AND sales_orders.id = ?
+  `).get(orgId, orderId);
+  if (!row) return null;
+  return {
+    ...formatSalesOrder(row),
+    customerName: row.customer_name || "",
+    lines: getSalesOrderLines(db, orgId, orderId),
+  };
+}
+
+function getSalesOrderLine(db, orgId, orderId, lineId) {
+  const row = db.prepare(`
+    SELECT * FROM sales_order_lines
+    WHERE org_id = ? AND sales_order_id = ? AND id = ?
+  `).get(orgId, orderId, lineId);
+  return row ? formatSalesOrderLine(row) : null;
+}
+
+function normalizeSalesOrderCreateBody(body) {
+  if (!body || typeof body !== "object") throwInvalidSalesOrder("Body must be an object");
+  const out = {
+    dealId: typeof body.dealId === "string" ? body.dealId.trim() : "",
+    quoteId: typeof body.quoteId === "string" ? body.quoteId.trim() : "",
+    customerId: typeof body.customerId === "string" ? body.customerId.trim() : "",
+    orderDate: typeof body.orderDate === "string" && body.orderDate.trim()
+      ? body.orderDate.trim() : new Date().toISOString().slice(0, 10),
+    requestedDeliveryDate: typeof body.requestedDeliveryDate === "string"
+      ? body.requestedDeliveryDate.trim() : "",
+    currency: typeof body.currency === "string" && body.currency.trim()
+      ? body.currency.trim().toUpperCase() : "AMD",
+    notes: typeof body.notes === "string" ? body.notes : "",
+    sourceType: typeof body.sourceType === "string" ? body.sourceType.trim() : "",
+    sourceId: typeof body.sourceId === "string" ? body.sourceId.trim() : "",
+  };
+  if (out.sourceType === "deal" && out.sourceId) {
+    out.dealId = out.sourceId;
+  } else if (out.sourceType === "quote" && out.sourceId) {
+    out.quoteId = out.sourceId;
+  } else if (out.sourceType && out.sourceType !== "manual") {
+    throwInvalidSalesOrder("sourceType must be 'deal', 'quote', or 'manual'");
+  }
+  if (!out.customerId) throwInvalidSalesOrder("customerId is required");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(out.orderDate)) {
+    throwInvalidSalesOrder("orderDate must be YYYY-MM-DD");
+  }
+  if (out.requestedDeliveryDate && !/^\d{4}-\d{2}-\d{2}$/.test(out.requestedDeliveryDate)) {
+    throwInvalidSalesOrder("requestedDeliveryDate must be YYYY-MM-DD");
+  }
+  if (!/^[A-Z]{3}$/.test(out.currency)) {
+    throwInvalidSalesOrder("currency must be a 3-letter ISO 4217 code");
+  }
+  return out;
+}
+
+function createSalesOrder(db, user, body) {
+  const input = normalizeSalesOrderCreateBody(body);
+  assertSalesOrderCustomerExists(db, user.org_id, input.customerId);
+  assertSalesOrderDealExists(db, user.org_id, input.dealId);
+  assertSalesOrderQuoteExists(db, user.org_id, input.quoteId);
+  const now = new Date().toISOString();
+  const orderId = randomId("so");
+  const orderNumber = nextSalesOrderNumber(db, user.org_id, input.orderDate);
+  db.prepare(`
+    INSERT INTO sales_orders (
+      id, org_id, deal_id, quote_id, customer_id, order_number, order_date,
+      requested_delivery_date, currency, subtotal, vat_total, total,
+      fulfillment_status, billing_status, notes, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'draft', 'unbilled', ?, ?, ?)
+  `).run(
+    orderId,
+    user.org_id,
+    input.dealId || null,
+    input.quoteId || null,
+    input.customerId,
+    orderNumber,
+    input.orderDate,
+    input.requestedDeliveryDate || null,
+    input.currency,
+    input.notes,
+    now,
+    now
+  );
+  audit(db, user.org_id, user.id, "sales.order.created", {
+    orderId,
+    orderNumber,
+    customerId: input.customerId,
+    sourceType: input.sourceType || (input.dealId ? "deal" : input.quoteId ? "quote" : "manual"),
+  });
+  return getSalesOrder(db, user.org_id, orderId);
+}
+
+function normalizeSalesOrderUpdateBody(body, existing) {
+  if (!body || typeof body !== "object") throwInvalidSalesOrder("Body must be an object");
+  const out = { notes: existing.notes, requestedDeliveryDate: existing.requestedDeliveryDate };
+  if (typeof body.notes === "string") out.notes = body.notes;
+  if (body.requestedDeliveryDate === null) {
+    out.requestedDeliveryDate = null;
+  } else if (typeof body.requestedDeliveryDate === "string" && body.requestedDeliveryDate.trim()) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.requestedDeliveryDate.trim())) {
+      throwInvalidSalesOrder("requestedDeliveryDate must be YYYY-MM-DD");
+    }
+    out.requestedDeliveryDate = body.requestedDeliveryDate.trim();
+  }
+  return out;
+}
+
+function updateSalesOrder(db, user, orderId, body) {
+  const existing = getSalesOrder(db, user.org_id, orderId);
+  if (!existing) {
+    const err = new Error("Sales order not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  // Reject if the order has moved past 'packed' — i.e. already shipped /
+  // delivered / cancelled. (See FULFILLMENT_ORDER.)
+  const orderNum = FULFILLMENT_ORDER[existing.fulfillmentStatus] ?? 0;
+  if (orderNum > FULFILLMENT_ORDER.packed) {
+    const err = new Error(`Sales order is ${existing.fulfillmentStatus}; cannot edit`);
+    err.statusCode = 409;
+    err.code = "sales_order_immutable";
+    throw err;
+  }
+  const input = normalizeSalesOrderUpdateBody(body, existing);
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE sales_orders
+    SET notes = ?, requested_delivery_date = ?, updated_at = ?
+    WHERE org_id = ? AND id = ?
+  `).run(input.notes, input.requestedDeliveryDate, now, user.org_id, orderId);
+  return getSalesOrder(db, user.org_id, orderId);
+}
+
+function confirmSalesOrder(db, user, orderId) {
+  const existing = getSalesOrder(db, user.org_id, orderId);
+  if (!existing) {
+    const err = new Error("Sales order not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.fulfillmentStatus !== 'draft') {
+    const err = new Error(`Sales order is ${existing.fulfillmentStatus}; can only confirm drafts`);
+    err.statusCode = 409;
+    err.code = "sales_order_invalid_transition";
+    throw err;
+  }
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE sales_orders
+    SET fulfillment_status = 'reserved', updated_at = ?
+    WHERE org_id = ? AND id = ?
+  `).run(now, user.org_id, orderId);
+  // Also mark all draft lines as reserved. (Stock reservation is wired in
+  // Phase 1; for now this is a status-only transition.)
+  db.prepare(`
+    UPDATE sales_order_lines
+    SET fulfillment_status = 'reserved'
+    WHERE org_id = ? AND sales_order_id = ? AND fulfillment_status = 'pending'
+  `).run(user.org_id, orderId);
+  audit(db, user.org_id, user.id, "sales.order.confirmed", { orderId });
+  return getSalesOrder(db, user.org_id, orderId);
+}
+
+function cancelSalesOrder(db, user, orderId) {
+  const existing = getSalesOrder(db, user.org_id, orderId);
+  if (!existing) {
+    const err = new Error("Sales order not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (isTerminalFulfillmentStatus(existing.fulfillmentStatus)) {
+    const err = new Error(`Sales order is already ${existing.fulfillmentStatus}; cannot cancel`);
+    err.statusCode = 409;
+    err.code = "sales_order_invalid_transition";
+    throw err;
+  }
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE sales_orders
+    SET fulfillment_status = 'cancelled', updated_at = ?
+    WHERE org_id = ? AND id = ?
+  `).run(now, user.org_id, orderId);
+  db.prepare(`
+    UPDATE sales_order_lines
+    SET fulfillment_status = 'cancelled'
+    WHERE org_id = ? AND sales_order_id = ? AND fulfillment_status != 'cancelled'
+  `).run(user.org_id, orderId);
+  audit(db, user.org_id, user.id, "sales.order.cancelled", { orderId });
+  return getSalesOrder(db, user.org_id, orderId);
+}
+
+function normalizeSalesOrderLineBody(body, { partial = false } = {}) {
+  if (!body || typeof body !== "object") throwInvalidSalesOrder("Body must be an object");
+  const out = {
+    catalogItemId: typeof body.catalogItemId === "string" ? body.catalogItemId.trim() : "",
+    catalogVariantId: typeof body.catalogVariantId === "string" ? body.catalogVariantId.trim() : "",
+    description: typeof body.description === "string" ? body.description.trim() : "",
+    quantity: body.quantity,
+    unit: typeof body.unit === "string" && body.unit.trim() ? body.unit.trim() : "հատ",
+    unitPriceMinor: body.unitPriceMinor,
+    discountPercent: typeof body.discountPercent === "number" ? body.discountPercent : 0,
+    vatClass: typeof body.vatClass === "string" && body.vatClass.trim()
+      ? body.vatClass.trim() : "standard",
+  };
+  if (!out.description) throwInvalidSalesOrder("description is required");
+  if (typeof out.quantity !== "number" || !Number.isFinite(out.quantity) || out.quantity <= 0) {
+    throwInvalidSalesOrder("quantity must be a positive number");
+  }
+  if (typeof out.unitPriceMinor !== "number" || !Number.isInteger(out.unitPriceMinor) || out.unitPriceMinor < 0) {
+    throwInvalidSalesOrder("unitPriceMinor must be a non-negative integer");
+  }
+  if (out.discountPercent < 0 || out.discountPercent > 100) {
+    throwInvalidSalesOrder("discountPercent must be between 0 and 100");
+  }
+  if (!Object.prototype.hasOwnProperty.call(SALES_ORDER_VAT_RATES, out.vatClass)) {
+    throwInvalidSalesOrder("vatClass must be one of: standard, reduced, zero, exempt");
+  }
+  if (partial) {
+    // PATCH: allow partial fields. Missing fields are filled in by the caller
+    // from the existing line.
+    return out;
+  }
+  return out;
+}
+
+function assertSalesOrderLineEditable(order) {
+  if (order.fulfillmentStatus !== 'draft' && order.fulfillmentStatus !== 'reserved') {
+    const err = new Error(`Sales order is ${order.fulfillmentStatus}; cannot edit lines`);
+    err.statusCode = 409;
+    err.code = "sales_order_immutable";
+    throw err;
+  }
+}
+
+function addSalesOrderLine(db, user, orderId, body) {
+  const order = getSalesOrder(db, user.org_id, orderId);
+  if (!order) {
+    const err = new Error("Sales order not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  assertSalesOrderLineEditable(order);
+  const input = normalizeSalesOrderLineBody(body, { partial: false });
+  // Auto-assign the next line_number.
+  const nextNumberRow = db.prepare(`
+    SELECT COALESCE(MAX(line_number), 0) AS max_line
+    FROM sales_order_lines
+    WHERE org_id = ? AND sales_order_id = ?
+  `).get(user.org_id, orderId);
+  const lineNumber = (Number(nextNumberRow.max_line) || 0) + 1;
+  const lineTotal = computeLineTotalMinor(input.quantity, input.unitPriceMinor, input.discountPercent);
+  const vatAmount = computeLineVatAmountMinor(lineTotal, input.vatClass);
+  const lineId = randomId("sol");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO sales_order_lines (
+      id, org_id, sales_order_id, line_number, catalog_item_id, catalog_variant_id,
+      description, quantity, unit, unit_price_minor, discount_percent, vat_class,
+      line_total, vat_amount, fulfillment_status, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+  `).run(
+    lineId,
+    user.org_id,
+    orderId,
+    lineNumber,
+    input.catalogItemId || null,
+    input.catalogVariantId || null,
+    input.description,
+    input.quantity,
+    input.unit,
+    input.unitPriceMinor,
+    input.discountPercent,
+    input.vatClass,
+    lineTotal,
+    vatAmount,
+    now
+  );
+  recomputeSalesOrderTotals(db, user.org_id, orderId);
+  return getSalesOrderLine(db, user.org_id, orderId, lineId);
+}
+
+function updateSalesOrderLine(db, user, orderId, lineId, body) {
+  const order = getSalesOrder(db, user.org_id, orderId);
+  if (!order) {
+    const err = new Error("Sales order not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  // Reject if the order has moved past 'packed' (shipped/delivered/cancelled).
+  const orderNum = FULFILLMENT_ORDER[order.fulfillmentStatus] ?? 0;
+  if (orderNum >= FULFILLMENT_ORDER.shipped) {
+    const err = new Error(`Sales order is ${order.fulfillmentStatus}; cannot edit lines`);
+    err.statusCode = 409;
+    err.code = "sales_order_immutable";
+    throw err;
+  }
+  const existing = getSalesOrderLine(db, user.org_id, orderId, lineId);
+  if (!existing) {
+    const err = new Error("Sales order line not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.fulfillmentStatus !== 'pending') {
+    const err = new Error(`Sales order line is ${existing.fulfillmentStatus}; cannot edit`);
+    err.statusCode = 409;
+    err.code = "sales_order_line_immutable";
+    throw err;
+  }
+  // Apply partial updates: any field present in the body replaces existing.
+  const merged = {
+    catalogItemId: body && typeof body.catalogItemId === "string" ? body.catalogItemId.trim() : existing.catalogItemId,
+    catalogVariantId: body && typeof body.catalogVariantId === "string" ? body.catalogVariantId.trim() : existing.catalogVariantId,
+    description: body && typeof body.description === "string" ? body.description.trim() : existing.description,
+    quantity: body && Object.prototype.hasOwnProperty.call(body, "quantity") ? body.quantity : existing.quantity,
+    unit: body && typeof body.unit === "string" && body.unit.trim() ? body.unit.trim() : existing.unit,
+    unitPriceMinor: body && Object.prototype.hasOwnProperty.call(body, "unitPriceMinor") ? body.unitPriceMinor : existing.unitPriceMinor,
+    discountPercent: body && typeof body.discountPercent === "number" ? body.discountPercent : existing.discountPercent,
+    vatClass: body && typeof body.vatClass === "string" && body.vatClass.trim() ? body.vatClass.trim() : existing.vatClass,
+  };
+  if (!merged.description) throwInvalidSalesOrder("description is required");
+  if (typeof merged.quantity !== "number" || !Number.isFinite(merged.quantity) || merged.quantity <= 0) {
+    throwInvalidSalesOrder("quantity must be a positive number");
+  }
+  if (typeof merged.unitPriceMinor !== "number" || !Number.isInteger(merged.unitPriceMinor) || merged.unitPriceMinor < 0) {
+    throwInvalidSalesOrder("unitPriceMinor must be a non-negative integer");
+  }
+  if (merged.discountPercent < 0 || merged.discountPercent > 100) {
+    throwInvalidSalesOrder("discountPercent must be between 0 and 100");
+  }
+  if (!Object.prototype.hasOwnProperty.call(SALES_ORDER_VAT_RATES, merged.vatClass)) {
+    throwInvalidSalesOrder("vatClass must be one of: standard, reduced, zero, exempt");
+  }
+  const lineTotal = computeLineTotalMinor(merged.quantity, merged.unitPriceMinor, merged.discountPercent);
+  const vatAmount = computeLineVatAmountMinor(lineTotal, merged.vatClass);
+  db.prepare(`
+    UPDATE sales_order_lines
+    SET catalog_item_id = ?, catalog_variant_id = ?, description = ?,
+        quantity = ?, unit = ?, unit_price_minor = ?, discount_percent = ?,
+        vat_class = ?, line_total = ?, vat_amount = ?
+    WHERE org_id = ? AND sales_order_id = ? AND id = ?
+  `).run(
+    merged.catalogItemId || null,
+    merged.catalogVariantId || null,
+    merged.description,
+    merged.quantity,
+    merged.unit,
+    merged.unitPriceMinor,
+    merged.discountPercent,
+    merged.vatClass,
+    lineTotal,
+    vatAmount,
+    user.org_id,
+    orderId,
+    lineId
+  );
+  recomputeSalesOrderTotals(db, user.org_id, orderId);
+  return getSalesOrderLine(db, user.org_id, orderId, lineId);
+}
+
+function deleteSalesOrderLine(db, user, orderId, lineId) {
+  const order = getSalesOrder(db, user.org_id, orderId);
+  if (!order) {
+    const err = new Error("Sales order not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const orderNum = FULFILLMENT_ORDER[order.fulfillmentStatus] ?? 0;
+  if (orderNum >= FULFILLMENT_ORDER.shipped) {
+    const err = new Error(`Sales order is ${order.fulfillmentStatus}; cannot delete lines`);
+    err.statusCode = 409;
+    err.code = "sales_order_immutable";
+    throw err;
+  }
+  const existing = getSalesOrderLine(db, user.org_id, orderId, lineId);
+  if (!existing) {
+    const err = new Error("Sales order line not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.fulfillmentStatus !== 'pending') {
+    const err = new Error(`Sales order line is ${existing.fulfillmentStatus}; cannot delete`);
+    err.statusCode = 409;
+    err.code = "sales_order_line_immutable";
+    throw err;
+  }
+  db.prepare("DELETE FROM sales_order_lines WHERE org_id = ? AND sales_order_id = ? AND id = ?")
+    .run(user.org_id, orderId, lineId);
+  // Re-sequence the remaining line_numbers so they stay contiguous.
+  const remaining = db.prepare(`
+    SELECT id FROM sales_order_lines
+    WHERE org_id = ? AND sales_order_id = ?
+    ORDER BY line_number ASC
+  `).all(user.org_id, orderId);
+  const updateLineNumber = db.prepare(`
+    UPDATE sales_order_lines SET line_number = ? WHERE org_id = ? AND id = ?
+  `);
+  remaining.forEach((row, idx) => {
+    updateLineNumber.run(idx + 1, user.org_id, row.id);
+  });
+  recomputeSalesOrderTotals(db, user.org_id, orderId);
+  return { id: lineId, deleted: true };
 }
 
 module.exports = { buildApp };
