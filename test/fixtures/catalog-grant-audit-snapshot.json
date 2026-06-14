@@ -1,0 +1,852 @@
+{
+  "version": 1,
+  "capturedAt": "LOCKED",
+  "note": "This is the lock-in snapshot for scripts/lint-rbac-broad-grants.js. Regenerate with: node scripts/lint-rbac-broad-grants.js --json | jq ... (see scripts/snapshot-catalog-grant-audit.js).",
+  "counts": {
+    "pass": 5,
+    "broad": 10,
+    "no-legacy": 23,
+    "unknown-key": 10,
+    "total": 48
+  },
+  "findings": [
+    {
+      "kind": "pass",
+      "source": "requireOwner",
+      "permKey": "system.tenant.create",
+      "expectedRoles": [
+        "Owner"
+      ],
+      "actualRoles": [
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "broad",
+      "source": "requirePeopleWriter",
+      "permKey": "hr.employee.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Admin",
+        "HRLead",
+        "HRSpecialist",
+        "Owner",
+        "PayrollClerk"
+      ],
+      "extraRoles": [
+        "HRLead",
+        "HRSpecialist",
+        "PayrollClerk"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireAccessReviewer",
+      "permKey": "security.access.review",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead",
+        "Owner"
+      ],
+      "extraRoles": [
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireSessionReviewer",
+      "permKey": "security.session.list",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead",
+        "Owner"
+      ],
+      "extraRoles": [
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireSessionAdmin",
+      "permKey": "security.session.revoke",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead",
+        "Owner"
+      ],
+      "extraRoles": [
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireAuditExportReader",
+      "permKey": "security.audit.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead",
+        "Owner"
+      ],
+      "extraRoles": [
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireAuditReader",
+      "permKey": "security.audit.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead",
+        "Owner"
+      ],
+      "extraRoles": [
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireAuditExportWriter",
+      "permKey": "security.audit.export",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead",
+        "Owner"
+      ],
+      "extraRoles": [
+        "Auditor",
+        "ComplianceOfficer",
+        "CopilotReviewer",
+        "FinanceLead"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireCrmEditor",
+      "permKey": "crm.deal.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Salesperson",
+        "Service Manager"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Bookkeeper",
+        "FinanceLead",
+        "HelpdeskAgent",
+        "Operator",
+        "Owner",
+        "POSCashier",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager"
+      ],
+      "extraRoles": [
+        "Accountant",
+        "Bookkeeper",
+        "FinanceLead",
+        "HelpdeskAgent",
+        "POSCashier",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireCollectionEditor",
+      "permKey": "crm.quote.send",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Salesperson",
+        "Service Manager",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Bookkeeper",
+        "FinanceLead",
+        "HelpdeskAgent",
+        "Operator",
+        "Owner",
+        "POSCashier",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager"
+      ],
+      "extraRoles": [
+        "Bookkeeper",
+        "FinanceLead",
+        "HelpdeskAgent",
+        "POSCashier",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager"
+      ]
+    },
+    {
+      "kind": "broad",
+      "source": "requireFinanceOperator",
+      "permKey": "finance.journal.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Bookkeeper",
+        "FinanceLead",
+        "Owner",
+        "PayrollClerk",
+        "PurchaseLead"
+      ],
+      "extraRoles": [
+        "Bookkeeper",
+        "FinanceLead",
+        "PayrollClerk",
+        "PurchaseLead"
+      ]
+    },
+    {
+      "kind": "unknown-key",
+      "source": "requireAnalyticsSnapshotWriter",
+      "permKey": "analytics.snapshot.create",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'analytics.snapshot.create' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "requireAnalyticsReportReader",
+      "permKey": "analytics.report.read",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'analytics.report.read' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/platform/tenant",
+      "permKey": "system.tenant.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/security/mfa/enroll",
+      "permKey": "security.mfa.configure",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/security/mfa/verify-enrollment",
+      "permKey": "security.mfa.configure",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/integrations/connectors",
+      "permKey": "system.integrations.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/integrations/connectors/:key/configure",
+      "permKey": "system.integrations.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/integrations/connectors/:key/health-check",
+      "permKey": "system.integrations.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/catalog/categories",
+      "permKey": "inv.product.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/catalog/price-lists",
+      "permKey": "inv.product.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/catalog/pricing/resolve",
+      "permKey": "inv.product.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/catalog/margin-rules",
+      "permKey": "inv.product.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/catalog/items",
+      "permKey": "inv.product.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/catalog/items/:id",
+      "permKey": "inv.product.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/catalog/items",
+      "permKey": "inv.product.create",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "PATCH /api/catalog/items/:id",
+      "permKey": "inv.product.update",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/inventory/locations",
+      "permKey": "inv.stock.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/inventory/stock",
+      "permKey": "inv.stock.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/inventory/moves",
+      "permKey": "inv.stock.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/inventory/moves",
+      "permKey": "inv.stock.receive",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "WarehouseClerk"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/purchase/orders",
+      "permKey": "purchase.po.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "VendorPortal"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/purchase/vendors",
+      "permKey": "purchase.vendor.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "GET /api/purchase/analytics",
+      "permKey": "purchase.analytics.read",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/purchase/vendors",
+      "permKey": "purchase.vendor.create",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/purchase/orders",
+      "permKey": "purchase.po.create",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/purchase/orders/:id/confirm",
+      "permKey": "purchase.po.update",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/purchase/orders/:id/receive",
+      "permKey": "purchase.receipt.create",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/purchase/orders/:id/return",
+      "permKey": "purchase.return.create",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "no-legacy",
+      "source": "POST /api/purchase/orders/:id/bill",
+      "permKey": "finance.bill.create",
+      "expectedRoles": null,
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Bookkeeper",
+        "FinanceLead",
+        "Owner",
+        "PayrollClerk",
+        "PurchaseLead"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "unknown-key",
+      "source": "GET /api/pilots/templates/clinic-wellness",
+      "permKey": "pilot.template.read",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.template.read' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "POST /api/pilots/templates/clinic-wellness/install",
+      "permKey": "pilot.template.install",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.template.install' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "GET /api/pilots/clinic-wellness/owner-briefs",
+      "permKey": "pilot.brief.read",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.brief.read' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "POST /api/pilots/clinic-wellness/owner-briefs",
+      "permKey": "pilot.brief.create",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.brief.create' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "GET /api/pilots/clinic-wellness/operator-workbenches",
+      "permKey": "pilot.workbench.read",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.workbench.read' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "POST /api/pilots/clinic-wellness/operator-workbenches",
+      "permKey": "pilot.workbench.create",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.workbench.create' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "GET /api/pilots/clinic-wellness/accountant-reviews",
+      "permKey": "pilot.review.read",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.review.read' is not in the PERMISSIONS catalog"
+    },
+    {
+      "kind": "unknown-key",
+      "source": "POST /api/pilots/clinic-wellness/accountant-reviews",
+      "permKey": "pilot.review.create",
+      "expectedRoles": null,
+      "actualRoles": [],
+      "extraRoles": [],
+      "note": "permKey 'pilot.review.create' is not in the PERMISSIONS catalog"
+    }
+  ]
+}
