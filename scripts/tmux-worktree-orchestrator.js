@@ -191,7 +191,8 @@ function launchTmuxPane(sessionName, workerName, launcherCommand) {
     .replace(/\{task_file\}/g, taskFile)
     .replace(/\{handoff_file\}/g, handoffFile)
     .replace(/\{status_file\}/g, statusFile)
-    .replace(/\{repo_root\}/g, REPO_ROOT);
+    .replace(/\{repo_root\}/g, REPO_ROOT)
+    .replace(/\{worker_name\}/g, workerName);
 
   tmux(['new-window', '-t', sessionName, '-n', workerName, '-c', worktreePath, cmd]);
   return { session: sessionName, window: workerName, command: cmd };
