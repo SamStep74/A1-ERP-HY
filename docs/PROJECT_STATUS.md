@@ -319,3 +319,116 @@ pre-existing → 233/233 once fixed), `scripts/lint-rbac.js` extended
 with a "broad grant" detector, and a narrow preHandler-only migration
 slice merged to main without breaking `api.test.js`. Wave 5 can then
 attempt the broader migration with the catalog grants already audited.
+
+## Wave 4 + Wave 5 — COMPLETE (pushed as 71b8c21)
+
+**Status:** Both waves complete. All 5 worker branches merged to main
+and pushed to origin. The catalog-grant audit invariant is now enforced
+end-to-end in CI: every `requireXxx` helper and every
+`preHandler: requirePerm(...)` route is checked against the legacy
+allow-list, and any drift between the catalog and the legacy intent
+fails the build.
+
+### Commits on origin/main (oldest → newest)
+
+| SHA | What |
+|---|---|
+| `2b9d20f` | Wave 4 catalog-grant-audit — broad-grant lint infrastructure + audit doc |
+| `a02356b` | Wave 4 migrate-preHandlers-only — 6 routes converted to pure preHandler |
+| `86c5cad` | Wave 5 narrow-broad-grants — 11 BROAD GRANTs → 0 on requireXxx helpers |
+| `7a167cb` | Wave 5 cleanup — register 10 perm keys + remove system.integrations.read from AuditOperator |
+| `22eca34` | Wave 4 fix-pre-existing-failures — 6 api.test.js canary tests resolved (233/233) |
+| `71b8c21` | Wave 5 annotate-allow-list-sites — 23 NO LEGACY sites annotated |
+
+### Catalog-grant audit state (snapshot regen at 71b8c21)
+
+```
+16 PASS — catalog grants ⊆ legacy allow-list
+23 BROAD GRANT — catalog grants ⊃ legacy allow-list (NEW, on inline routes)
+ 9 NO LEGACY ALLOW-LIST — needs annotation or migration
+ 0 UNKNOWN PERM KEY — all 10 unknown keys registered
+48 total sites scanned
+```
+
+**Key finding:** the 11 BROAD GRANTs on `requireXxx` helpers (Wave 5
+narrow-broad-grants) are now **0** — the catalog is correctly scoped
+for every helper. The 23 BROAD GRANTs on inline routes are a NEW
+discovery: when `annotate-allow-list-sites` added the
+`// rbac-audit: expected-roles Owner, Admin` annotations to 23 inline
+routes, the audit moved those sites from NO LEGACY → BROAD GRANT
+(surfacing the role-set gap between the legacy intent and the catalog
+grants). Wave 7+ will narrow these.
+
+### Test baseline
+
+| Suite | Before Wave 4 | After Wave 5 (71b8c21) |
+|---|---|---|
+| `api.test.js` | 227 pass / 6 fail | **233 pass / 0 fail** |
+| `rbac-broad-grants.test.js` | n/a | 25/25 pass |
+| `rbac.test.js` | 45/45 | 45/45 |
+| `rbac-migration.test.js` | 0 fail (warn-only) | 0 fail |
+| `rbac-session.test.js` | 0 fail | 0 fail |
+| `orchestrator.test.js` | 0 fail | 0 fail |
+| `pre-existing-failures.test.js` | n/a (new) | 3/3 pass |
+
+### What Wave 4+5 proves
+
+The pre-existing 6 `api.test.js` failures were the canary that the
+Wave 3 workers never read. Wave 4 fixed the production code to match
+the test contract (not the other way around) and locked the baseline
+with `test/pre-existing-failures.test.js`. The catalog-grant audit
+catches the next regression automatically: any future migration that
+silently widens the role set for a perm key fails
+`rbac-broad-grants.test.js` (or, if the snapshot is stale, fails
+`lint-rbac-broad-grants.js` exit code 1).
+
+### Design decisions that paid off
+
+1. **`preHandler: requirePerm(...)` is safe.** The 6 routes that
+   became pure preHandlers in Wave 4 + the 11 helpers narrowed in
+   Wave 5 are now catalog-driven. No helper-body rewrites needed
+   for these.
+2. **Narrow perm sets > wide perm sets.** The `AuditOperator` /
+   `IntegrationsReader` / `AccessReviewer` / etc. split mirrors the
+   legacy allow-list exactly. Adding a new role to a perm set now
+   can only widen access if the legacy allow-list also included that
+   role — the audit catches the drift.
+3. **Annotations are the migration bridge.** The
+   `// rbac-audit: expected-roles Owner, Admin` annotations make the
+   legacy intent explicit in the current source. The audit reads
+   them first, so a future wave that migrates the inline routes
+   doesn't have to re-derive the intent from git history.
+
+## Wave 6 — Phase 0 of ERP plan (IN FLIGHT)
+
+Three workers in tmux session `a1-erp-hy-wave6`, launched at
+2026-06-14T10:51:32Z (PIDs 92139 / 92282 / 92370):
+
+| Worker | Scope | Deliverable |
+|---|---|---|
+| `add-armenian-product-fields` | `catalog_items` + `catalog_item_variants` | Armenian/Russian/English names, SKU, barcode, vat_class, excise_marker, fiscal_receipt_category, arm_region_of_origin. CHECK constraints + 10 tests. |
+| `add-sales-order-primitives` | `sales_orders` + `sales_order_lines` | Fulfillment + billing status enums, 9 endpoints with `sales.order.*` perm keys, order_number generator, 10 tests. |
+| `expand-localization-dict` | `arm_regions` + label dictionary | 12 marzes + Yerevan city seeded; product/order/excise/fiscal label keys (hy, ru, en); `getLocalizedLabel(key, locale)`; 10 tests. |
+
+**Goal of Wave 6:** ship the Phase 0 foundation — Armenian product
+master, sales-order lifecycle, multilingual label dictionary — that
+the rest of the ERP plan (Phase 1 inventory, Phase 2 purchasing,
+etc.) builds on. Independent of the RBAC work and of each other;
+3 workers in parallel.
+
+## Wave 7+ — TO PLAN
+
+After Wave 6 ships, the next waves will:
+1. **Narrow the 23 newly-exposed BROAD GRANTs** on inline routes
+   (Wave 7). Same pattern as `narrow-broad-grants`: extract the
+   perm from a wide perm set into a narrow one matching the legacy
+   `// rbac-audit: expected-roles` annotation.
+2. **Phase 1 — Inventory** (Wave 8+): stock movements, valuation
+   methods (FIFO/LIFO/WAC), reservations, cycle counts.
+3. **Phase 2 — Purchasing** (Wave 9+): purchase orders, vendor
+   bills, three-way matching (PO ↔ receipt ↔ invoice).
+4. **Phase 3 — Manufacturing** (Wave 10+): BOMs, work orders,
+   shop floor.
+5. **Phase 4 — Reports & analytics** (Wave 11+): report builder,
+   pivot tables, scheduled reports.
+
