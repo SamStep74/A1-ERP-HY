@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-14T09:51:43.679Z`
+Generated: `2026-06-14T10:23:02.767Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,8 +14,8 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 5 |
-| BROAD GRANT — perm grants ⊃ legacy allow-list | 10 |
+| PASS — perm grants ⊆ legacy allow-list | 15 |
+| BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
 | NO LEGACY ALLOW-LIST — needs manual annotation | 23 |
 | UNKNOWN PERM KEY — not in current catalog | 10 |
 
@@ -26,30 +26,24 @@ Total entries audited: **48**
 | Source | Perm key | Legacy allow-list | Catalog grant |
 |---|---|---|---|
 | `requireOwner` | `system.tenant.create` | `Owner` | `Owner` |
+| `requirePeopleWriter` | `hr.employee.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
+| `requireAccessReviewer` | `security.access.review` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `requireSessionReviewer` | `security.session.list` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `requireSessionAdmin` | `security.session.revoke` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `requireAuditExportReader` | `security.audit.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `requireAuditReader` | `security.audit.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `requireAuditExportWriter` | `security.audit.export` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `requireCrmEditor` | `crm.deal.create` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
+| `requireCollectionEditor` | `crm.quote.send` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
+| `requireFinanceOperator` | `finance.journal.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
 | `GET /api/platform/tenant` | `system.tenant.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Owner` |
-| `GET /api/integrations/connectors` | `system.integrations.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Owner` |
+| `GET /api/integrations/connectors` | `system.integrations.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
 | `POST /api/integrations/connectors/:key/configure` | `system.integrations.update` | `Owner`, `Admin` | `Admin`, `Owner` |
 | `POST /api/integrations/connectors/:key/health-check` | `system.integrations.update` | `Owner`, `Admin` | `Admin`, `Owner` |
 
 ## BROAD GRANT — perm grants ⊃ legacy allow-list
 
-A broad grant means the catalog grants the permission to roles that the
-legacy `user.role` allow-list explicitly did NOT. The migration cannot be
-re-applied until the catalog is narrowed (or the allow-list is widened,
-which requires product sign-off).
-
-| Source | Perm key | Legacy allow-list | Catalog grant | Extra roles |
-|---|---|---|---|---|
-| `requirePeopleWriter` | `hr.employee.create` | `Owner`, `Admin`, `Accountant` | `Admin`, `HRLead`, `HRSpecialist`, `Owner`, `PayrollClerk` | `HRLead`, `HRSpecialist`, `PayrollClerk` |
-| `requireAccessReviewer` | `security.access.review` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead`, `Owner` | `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead` |
-| `requireSessionReviewer` | `security.session.list` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead`, `Owner` | `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead` |
-| `requireSessionAdmin` | `security.session.revoke` | `Owner`, `Admin` | `Admin`, `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead`, `Owner` | `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead` |
-| `requireAuditExportReader` | `security.audit.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead`, `Owner` | `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead` |
-| `requireAuditReader` | `security.audit.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead`, `Owner` | `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead` |
-| `requireAuditExportWriter` | `security.audit.export` | `Owner`, `Admin` | `Admin`, `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead`, `Owner` | `Auditor`, `ComplianceOfficer`, `CopilotReviewer`, `FinanceLead` |
-| `requireCrmEditor` | `crm.deal.create` | `Owner`, `Admin`, `Operator`, `Salesperson`, `Service Manager` | `Accountant`, `Admin`, `Bookkeeper`, `FinanceLead`, `HelpdeskAgent`, `Operator`, `Owner`, `POSCashier`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `Accountant`, `Bookkeeper`, `FinanceLead`, `HelpdeskAgent`, `POSCashier`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
-| `requireCollectionEditor` | `crm.quote.send` | `Owner`, `Admin`, `Operator`, `Salesperson`, `Service Manager`, `Accountant` | `Accountant`, `Admin`, `Bookkeeper`, `FinanceLead`, `HelpdeskAgent`, `Operator`, `Owner`, `POSCashier`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `Bookkeeper`, `FinanceLead`, `HelpdeskAgent`, `POSCashier`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
-| `requireFinanceOperator` | `finance.journal.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Bookkeeper`, `FinanceLead`, `Owner`, `PayrollClerk`, `PurchaseLead` | `Bookkeeper`, `FinanceLead`, `PayrollClerk`, `PurchaseLead` |
+_No findings._ **The catalog is correctly scoped for every audited site.**
 
 ## NO LEGACY ALLOW-LIST — could not find a requireXxx helper for this perm
 

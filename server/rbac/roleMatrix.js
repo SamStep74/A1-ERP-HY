@@ -29,6 +29,10 @@ const ROLE_MATRIX = Object.freeze({
     'StudioBuilder', 'ReportBuilder', 'AuditOperator', 'AuditDeliver',
     'AIPowerUser', 'AIGovernance', 'AgentDeveloper', 'AgentDeployer',
     'PIIEditor', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireXxx allow-lists.
+    'PeopleWriter', 'AccessReviewer', 'SessionReader', 'SessionAdmin',
+    'AuditReader', 'AuditExportWriter', 'DealCreator', 'QuoteSender',
+    'JournalWriter', 'IntegrationsReader',
   ]),
   Admin:           Object.freeze([
     'SystemAdmin', 'UserAdmin', 'SecurityAdmin', 'ComplianceOperator', 'RetentionAdmin',
@@ -39,6 +43,10 @@ const ROLE_MATRIX = Object.freeze({
     'DocsOperator', 'DocsAdmin', 'MarketingOperator', 'MarketingAutomation', 'ManufacturingOperator', 'ManufacturingAdmin',
     'StudioBuilder', 'ReportBuilder', 'AuditOperator',
     'AIEnabled', 'AIMutator', 'AIGovernance', 'AgentDeveloper', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireXxx allow-lists.
+    'PeopleWriter', 'AccessReviewer', 'SessionReader', 'SessionAdmin',
+    'AuditReader', 'AuditExportWriter', 'DealCreator', 'QuoteSender',
+    'JournalWriter', 'IntegrationsReader',
   ]),
 
   // ───────── Functional leads ─────────
@@ -52,6 +60,10 @@ const ROLE_MATRIX = Object.freeze({
     'CRMOperator', 'InventoryOperator', 'DeskOperator',
     'DocsOperator', 'ReportBuilder', 'MarketingOperator',
     'AIEnabled', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
+    // requireCollectionEditor allow-lists (Salesperson maps to the
+    // current sales roles SalesLead / SalesManager / SalesRep).
+    'DealCreator', 'QuoteSender',
   ]),
   PurchaseLead:    Object.freeze([
     'PurchaseOperator', 'PurchaseAdmin', 'InventoryOperator',
@@ -78,6 +90,11 @@ const ROLE_MATRIX = Object.freeze({
     'FinanceOperator', 'CRMOperator', 'InventoryOperator', 'PurchaseOperator',
     'DocsOperator', 'ReportBuilder', 'ComplianceOperator',
     'AIEnabled', 'SensitiveDataReader', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireXxx allow-lists.
+    // - PeopleWriter:   requirePeopleWriter      (Owner, Admin, Accountant)
+    // - JournalWriter:  requireFinanceOperator   (Owner, Admin, Accountant)
+    // - QuoteSender:    requireCollectionEditor  (Owner, Admin, Operator, Salesperson, Service Manager, Accountant)
+    'PeopleWriter', 'JournalWriter', 'QuoteSender',
   ]),
   Bookkeeper:      Object.freeze([
     'FinanceOperator', 'CRMOperator', 'DocsOperator', 'StandardUser',
@@ -90,10 +107,18 @@ const ROLE_MATRIX = Object.freeze({
     'CRMOperator', 'InventoryOperator', 'DeskOperator',
     'DocsOperator', 'ReportBuilder', 'MarketingOperator',
     'AIEnabled', 'Approver', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
+    // requireCollectionEditor allow-lists (Salesperson maps to the
+    // current sales roles SalesLead / SalesManager / SalesRep).
+    'DealCreator', 'QuoteSender',
   ]),
   SalesRep:        Object.freeze([
     'CRMOperator', 'InventoryOperator',
     'DocsOperator', 'AIEnabled', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
+    // requireCollectionEditor allow-lists (Salesperson maps to the
+    // current sales roles SalesLead / SalesManager / SalesRep).
+    'DealCreator', 'QuoteSender',
   ]),
   Purchaser:       Object.freeze([
     'PurchaseOperator', 'InventoryOperator',
@@ -137,14 +162,27 @@ const ROLE_MATRIX = Object.freeze({
   Auditor:         Object.freeze([
     'ReadOnly', 'AuditOperator', 'AuditDeliver', 'ComplianceOperator',
     'ReportBuilder', 'SensitiveDataReader', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireXxx allow-lists.
+    // - AccessReviewer:    requireAccessReviewer   (Owner, Admin, Auditor)
+    // - SessionReader:     requireSessionReviewer  (Owner, Admin, Auditor)
+    // - AuditReader:       requireAuditReader      (Owner, Admin, Auditor)
+    // - IntegrationsReader: requireIntegrationReader (Owner, Admin, Auditor)
+    'AccessReviewer', 'SessionReader', 'AuditReader', 'IntegrationsReader',
   ]),
 
   // ───────── Operator / service ─────────
   Operator:        Object.freeze([
     'CRMOperator', 'DeskOperator', 'DocsOperator', 'AIEnabled', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
+    // requireCollectionEditor allow-lists.
+    'DealCreator', 'QuoteSender',
   ]),
   ServiceManager:  Object.freeze([
     'DeskOperator', 'DeskAdmin', 'CRMOperator', 'DocsOperator', 'ReportBuilder', 'AIEnabled', 'StandardUser',
+    // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
+    // requireCollectionEditor allow-lists (Service Manager maps to
+    // ServiceManager).
+    'DealCreator', 'QuoteSender',
   ]),
 
   // ───────── External / Customer ─────────

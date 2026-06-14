@@ -42,11 +42,11 @@
     },
     "requireCrmEditor": {
       "permKey": "crm.deal.create",
-      "note": "Legacy: Owner, Admin, Salesperson, Sales Manager, SalesRep, SalesLead, etc. (broad business role set)."
+      "note": "Legacy allow-list uses the old role names 'Salesperson' / 'Service Manager' which were renamed to the current sales + service set (SalesLead, SalesManager, SalesRep, ServiceManager). The inline // rbac-audit: expected-roles annotation above the helper declares the current set: Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager. The catalog grant of crm.deal.create is delivered via the new DealCreator perm set held by exactly that set."
     },
     "requireCollectionEditor": {
       "permKey": "crm.quote.send",
-      "note": "Legacy: collection-editor role allow-list."
+      "note": "Legacy allow-list uses the old role names 'Salesperson' / 'Service Manager' which were renamed to the current sales + service set (SalesLead, SalesManager, SalesRep, ServiceManager). The inline // rbac-audit: expected-roles annotation above the helper declares the current set: Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant. The catalog grant of crm.quote.send is delivered via the new QuoteSender perm set held by exactly that set."
     },
     "requireFinanceOperator": {
       "permKey": "finance.journal.create",

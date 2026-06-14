@@ -182,28 +182,156 @@ test('rolesWithPermission: system.tenant.create is Owner-only (Owner escape hatc
   assert.deepEqual(holders, ['Owner'], 'system.tenant.create must be Owner-only');
 });
 
-test('rolesWithPermission: hr.employee.create is currently broad (catalog gap, tracked in BROAD GRANT)', () => {
-  // This test pins the current state of hr.employee.create so a future
-  // PR that narrows the catalog (e.g. drops HRLead from the roleMatrix)
-  // can be reviewed against an explicit assertion. The test is also
-  // self-documenting: it tells the reviewer WHY the perm is broad.
-  //
-  // Note: the catalog grant set intentionally does NOT include
-  // Accountant (the legacy required Accountant, so the legacy is
-  // actually wider than the catalog in this one role). The audit
-  // framework only flags catalog-widening, not catalog-narrowing,
-  // because widening is the security regression and narrowing just
-  // removes access.
+test('rolesWithPermission: hr.employee.create is now narrow ⊆ [Owner, Admin, Accountant]', () => {
+  // Wave 5 (narrow-broad-grants) split hr.employee.create out of HROperator
+  // and into a dedicated PeopleWriter perm set, which is granted only to
+  // Owner, Admin, Accountant (mirroring the legacy requirePeopleWriter
+  // allow-list). HRLead, HRSpecialist, and PayrollClerk lost the perm
+  // (they keep HR read/update/etc. via HROperator, just not create).
   const holders = rolesWithPermission('hr.employee.create');
-  assert.ok(holders.includes('Owner'));
-  assert.ok(holders.includes('Admin'));
-  assert.ok(holders.includes('HRLead'), 'HRLead is intentionally in the catalog grant — see audit BROAD GRANT row');
-  assert.ok(holders.includes('HRSpecialist'), 'HRSpecialist is intentionally in the catalog grant');
-  assert.ok(holders.includes('PayrollClerk'), 'PayrollClerk is intentionally in the catalog grant');
-  // SalesRep / HelpdeskAgent must NOT (they have no business writing
-  // employee records even if the catalog accidentally grants it).
-  for (const blocked of ['SalesRep', 'HelpdeskAgent', 'Bookkeeper']) {
-    assert.ok(!holders.includes(blocked), `${blocked} must NOT hold hr.employee.create`);
+  assert.deepEqual(holders, ['Accountant', 'Admin', 'Owner']);
+  // HR / payroll / sales roles must NOT hold hr.employee.create.
+  for (const blocked of ['HRLead', 'HRSpecialist', 'PayrollClerk', 'SalesRep', 'HelpdeskAgent', 'Bookkeeper', 'FinanceLead']) {
+    assert.ok(!holders.includes(blocked), `${blocked} must NOT hold hr.employee.create after Wave 5 narrowing`);
+  }
+});
+
+// ───────── 3b. Wave 5 narrow-grant assertions ─────────
+//
+// One test per broad-grant finding that was collapsed by the
+// narrow-broad-grants worker. Each test asserts:
+//   rolesWithPermission(permKey) is a subset of (or equal to) the legacy
+//   requireXxx allow-list, AND
+//   the extras listed in the Wave 4 audit are no longer in the holder set.
+// If a future PR silently widens the catalog for any of these perms,
+// the targeted test fails even before the lock-in snapshot is updated.
+
+test('narrow: requirePeopleWriter → hr.employee.create ⊆ [Owner, Admin, Accountant]', () => {
+  const expected = ['Owner', 'Admin', 'Accountant'];
+  const holders = rolesWithPermission('hr.employee.create');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['HRLead', 'HRSpecialist', 'PayrollClerk']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold hr.employee.create`);
+  }
+});
+
+test('narrow: requireAccessReviewer → security.access.review ⊆ [Owner, Admin, Auditor]', () => {
+  const expected = ['Owner', 'Admin', 'Auditor'];
+  const holders = rolesWithPermission('security.access.review');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['ComplianceOfficer', 'CopilotReviewer', 'FinanceLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold security.access.review`);
+  }
+});
+
+test('narrow: requireSessionReviewer → security.session.list ⊆ [Owner, Admin, Auditor]', () => {
+  const expected = ['Owner', 'Admin', 'Auditor'];
+  const holders = rolesWithPermission('security.session.list');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['ComplianceOfficer', 'CopilotReviewer', 'FinanceLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold security.session.list`);
+  }
+});
+
+test('narrow: requireSessionAdmin → security.session.revoke ⊆ [Owner, Admin]', () => {
+  const expected = ['Owner', 'Admin'];
+  const holders = rolesWithPermission('security.session.revoke');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['Auditor', 'ComplianceOfficer', 'CopilotReviewer', 'FinanceLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold security.session.revoke`);
+  }
+});
+
+test('narrow: requireAuditExportReader → security.audit.read ⊆ [Owner, Admin, Auditor]', () => {
+  const expected = ['Owner', 'Admin', 'Auditor'];
+  const holders = rolesWithPermission('security.audit.read');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['ComplianceOfficer', 'CopilotReviewer', 'FinanceLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold security.audit.read`);
+  }
+});
+
+test('narrow: requireAuditReader → security.audit.read ⊆ [Owner, Admin, Auditor] (same perm as above)', () => {
+  // requireAuditReader and requireAuditExportReader both gate on
+  // security.audit.read, so the narrowing is shared.
+  const holders = rolesWithPermission('security.audit.read');
+  assert.deepEqual(holders, ['Admin', 'Auditor', 'Owner']);
+});
+
+test('narrow: requireAuditExportWriter → security.audit.export ⊆ [Owner, Admin]', () => {
+  const expected = ['Owner', 'Admin'];
+  const holders = rolesWithPermission('security.audit.export');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['Auditor', 'ComplianceOfficer', 'CopilotReviewer', 'FinanceLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold security.audit.export`);
+  }
+});
+
+test('narrow: requireCrmEditor → crm.deal.create ⊆ [Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager]', () => {
+  // Strategy C — legacy allow-list uses the old role names
+  // "Salesperson" / "Service Manager" which were renamed to the current
+  // sales + service role set. The inline annotation in app.js
+  // declares the current expected set; this test pins it.
+  const expected = ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager'];
+  const holders = rolesWithPermission('crm.deal.create');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['Accountant', 'Bookkeeper', 'FinanceLead', 'HelpdeskAgent', 'POSCashier']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold crm.deal.create`);
+  }
+});
+
+test('narrow: requireCollectionEditor → crm.quote.send ⊆ [Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant]', () => {
+  // Strategy C — legacy allow-list uses the old role names
+  // "Salesperson" / "Service Manager" which were renamed to the current
+  // sales + service role set. The inline annotation in app.js
+  // declares the current expected set; this test pins it.
+  const expected = ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant'];
+  const holders = rolesWithPermission('crm.quote.send');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['Bookkeeper', 'FinanceLead', 'HelpdeskAgent', 'POSCashier']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold crm.quote.send`);
+  }
+});
+
+test('narrow: requireFinanceOperator → finance.journal.create ⊆ [Owner, Admin, Accountant]', () => {
+  const expected = ['Owner', 'Admin', 'Accountant'];
+  const holders = rolesWithPermission('finance.journal.create');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['Bookkeeper', 'FinanceLead', 'PayrollClerk', 'PurchaseLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold finance.journal.create`);
+  }
+});
+
+test('narrow: GET /api/integrations/connectors → system.integrations.read ⊆ [Owner, Admin, Auditor]', () => {
+  // Wave 5 also narrows the GET /api/integrations/connectors route. The
+  // legacy requireIntegrationReader helper (unmappable in the audit map
+  // but added to auth-security-slice) gates on Owner, Admin, Auditor.
+  // The new IntegrationsReader perm set delivers exactly that.
+  const expected = ['Owner', 'Admin', 'Auditor'];
+  const holders = rolesWithPermission('system.integrations.read');
+  for (const role of holders) {
+    assert.ok(expected.includes(role), `extra role ${role} not in legacy allow-list ${JSON.stringify(expected)}`);
+  }
+  for (const extra of ['ComplianceOfficer', 'CopilotReviewer', 'FinanceLead']) {
+    assert.ok(!holders.includes(extra), `${extra} must NOT hold system.integrations.read`);
   }
 });
 
