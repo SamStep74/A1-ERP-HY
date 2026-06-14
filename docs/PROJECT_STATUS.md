@@ -209,21 +209,24 @@ and pushed to `origin/main` at `411f051`.
 
 The `test/api.test.js` suite has **6 pre-existing failures** that
 reproduce on the base commit `0da6676` (i.e. before any wave 2 or
-wave 3 work) and are unrelated to the RBAC migration. Per the wave 2
-worker handoffs, they are:
+wave 3 work) and are unrelated to the RBAC migration. Confirmed by
+running `node --test --test-reporter=tap test/api.test.js` on `main`
+after the wave 2 merge:
 
-| # | Symptom | Location | Root cause hypothesis |
-|---|---|---|---|
-| 1 | "dashboard launcher source wiring covers every seeded login role app" | `test/api.test.js:272` | seeded login role list now includes roles the dashboard source doesn't render (post-Wave-1 catalog expansion added `Lawyer`, `ServiceManager`, `HelpdeskAgent`) |
-| 2 | "integration connector rejects malformed path keys before mutation" (one of the integration tests) | `test/api.test.js:1474` | connector's malformed-key guard may not match the latest connector key namespace |
-| 3 | "forms metadata validation" (test name) | `test/api.test.js` (forms slice) | forms metadata schema tightened after the test was written |
-| 4–6 | Three other `test/api.test.js` cases | various | same family — the api.test.js suite was authored against an earlier schema; the catalog + dashboard + connector code has since advanced |
+| # | TAP # | Test name |
+|---|---|---|
+| 1 | 8   | dashboard launcher source wiring covers every seeded login role app |
+| 2 | 23  | integration connector rejects malformed path keys before mutation |
+| 3 | 130 | customer 360 joins CRM, finance, service, automation, and legal sources |
+| 4 | 168 | failed webhook delivery can be retried manually |
+| 5 | 182 | service case mutations reject malformed metadata before persistence |
+| 6 | 199 | workflow rule state and rollback reject malformed metadata before persistence |
 
 These are **not** in the rbac / migration / session / orchestrator
-suites (all four of those are 100% green). They are also not in the
-wave 3 scope (Phase 1 migration). A future wave can either update
-the test expectations to match the new catalog or fix the production
-code to match the test contract. Tracked for wave 4+.
+suites (all four of those are 100% green — 211/211 pass). They are
+also not in the wave 3 scope (Phase 1 migration). A future wave can
+either update the test expectations to match the new catalog or fix
+the production code to match the test contract. Tracked for wave 4+.
 
 ## Wave 3 — Phase 1 RBAC migration (in progress)
 
