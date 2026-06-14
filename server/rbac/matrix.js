@@ -724,6 +724,7 @@ const PERMISSION_SETS = Object.freeze({
       'security.session.list',
       'security.session.revoke',
       'compliance.audit.prepare',
+      'system.integrations.read',
     ]),
   },
   AuditDeliver: {
