@@ -1010,7 +1010,7 @@ function initSchema(db) {
       ON quote_acceptances(org_id, quote_id);
 
     -- Sales orders: post-quote-acceptance supply chain primitives.
-    -- Distinct from `deals` (CRM pipeline, pre-acceptance) and `quotes`
+    -- Distinct from deals (CRM pipeline, pre-acceptance) and quotes
     -- (pricing documents). A sales order tracks fulfillment, billing, and
     -- shipping. Stock reservation is wired in Phase 1; auto-invoicing on
     -- fulfillment is Phase 1 too. Fulfillment & billing status enums are
