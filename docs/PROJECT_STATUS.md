@@ -416,19 +416,26 @@ the rest of the ERP plan (Phase 1 inventory, Phase 2 purchasing,
 etc.) builds on. Independent of the RBAC work and of each other;
 3 workers in parallel.
 
-## Wave 7+ — TO PLAN
+## Wave 7 — Planned (narrow 23 BROAD GRANTs)
 
-After Wave 6 ships, the next waves will:
-1. **Narrow the 23 newly-exposed BROAD GRANTs** on inline routes
-   (Wave 7). Same pattern as `narrow-broad-grants`: extract the
-   perm from a wide perm set into a narrow one matching the legacy
-   `// rbac-audit: expected-roles` annotation.
-2. **Phase 1 — Inventory** (Wave 8+): stock movements, valuation
-   methods (FIFO/LIFO/WAC), reservations, cycle counts.
-3. **Phase 2 — Purchasing** (Wave 9+): purchase orders, vendor
-   bills, three-way matching (PO ↔ receipt ↔ invoice).
-4. **Phase 3 — Manufacturing** (Wave 10+): BOMs, work orders,
-   shop floor.
-5. **Phase 4 — Reports & analytics** (Wave 11+): report builder,
-   pivot tables, scheduled reports.
+Detailed plan lives at
+[.orchestration/a1-erp-hy-wave7/wave7-plan.md](../.orchestration/a1-erp-hy-wave7/wave7-plan.md).
+JSON: [.orchestration/a1-erp-hy-wave7.json](../.orchestration/a1-erp-hy-wave7.json).
+
+3 workers, splits the 23 BROAD GRANTs by domain:
+- **Worker A** `narrow-catalog-permissions` — 10 catalog/inventory routes. Creates `CatalogReader`, `CatalogEditor`, `StockReader`, `StockReceiver`.
+- **Worker B** `add-inventory-adjust-perms` — registers the missing `inv.stock.{adjust,deliver,transfer,scrap,count}` + `inv.product.delete` + `inv.valuation.run` perm keys in the catalog.
+- **Worker C** `extract-purchase-narrow-sets` — 8 purchase/finance routes. Creates `PurchaseVendorReader`, `PurchaseOrderReader`, `PurchaseAnalyticsReader`, `PurchaseVendorWriter`, `PurchaseOrderWriter`, `PurchaseReceiptWriter`, `PurchaseReturnWriter`, `FinanceBillWriter`.
+
+Workers A & C both touch `matrix.js` + `roleMatrix.js` but on disjoint perm sets / role array entries, so octopus merge is safe. Worker B is fully isolated (touches only `permissions.js`).
+
+Target after merge: **0 BROAD, 0 UNKNOWN, 39 PASS, 9 NO LEGACY**.
+
+## Wave 8+ — TO PLAN
+
+1. **Annotate the 9 NO LEGACY sites** (Wave 8) — routes without `// rbac-audit: expected-roles` comments. Add the annotation after a manual review of the route's intent.
+2. **Phase 1 — Inventory** (Wave 9+): stock movements, valuation methods (FIFO/LIFO/WAC), reservations, cycle counts.
+3. **Phase 2 — Purchasing** (Wave 10+): purchase orders, vendor bills, three-way matching (PO ↔ receipt ↔ invoice).
+4. **Phase 3 — Manufacturing** (Wave 11+): BOMs, work orders, shop floor.
+5. **Phase 4 — Reports & analytics** (Wave 12+): report builder, pivot tables, scheduled reports.
 

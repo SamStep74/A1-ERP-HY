@@ -405,6 +405,12 @@ function runLintWithSyntheticFiles(extraFiles, opts = {}) {
     const lintPath = path.resolve(__dirname, '../scripts/lint-rbac.js');
     const args = [lintPath, `--roots=${tmp}`];
     if (opts.noFail) args.push('--no-fail');
+    // Tests that focus on direct-role-check lint (e.g. requirePerm patterns,
+    // sensitive-key redacting) shouldn't fail because the broad-grant audit
+    // finds drift in the real app.js. Pass --no-broad-grants whenever the
+    // caller asked for --no-fail — these tests aren't about the broad-grant
+    // stage and shouldn't be coupled to its current state.
+    if (opts.noFail) args.push('--no-broad-grants');
     const res = spawnSync(process.execPath, args, {
       encoding: 'utf8',
     });
