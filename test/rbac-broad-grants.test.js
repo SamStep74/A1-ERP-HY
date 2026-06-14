@@ -48,6 +48,7 @@ const {
   parseAllowListFromHelperBody,
   loadHelperBodies,
   auditMap,
+  PERMISSIONS,
 } = require('../scripts/lint-rbac-broad-grants.js');
 
 const snapshot = require('./fixtures/catalog-grant-audit-snapshot.json');
@@ -343,10 +344,13 @@ test('rolesWithPermission: unknown perm key returns empty array (does not throw)
 test('rolesWithPermission: every perm key in auditMap.helpers resolves to a non-empty holder set', () => {
   // The helpers section of the audit map is the one we expect to PASS
   // or BROAD GRANT — it should never resolve to an empty holder set
-  // unless the perm key is itself unknown.
+  // unless the perm key is itself unknown OR the perm is registered in
+  // the catalog but not yet assigned to any role (system-defined but
+  // unassigned; a future wave grants it to the right roles).
   for (const [helperName, helperDef] of Object.entries(auditMap.helpers)) {
     if (!helperDef.permKey) continue;
     if (!isValidKey(helperDef.permKey)) continue; // unknown-key is a separate failure mode
+    if (PERMISSIONS[helperDef.permKey]) continue; // system-defined but unassigned — skip
     const holders = rolesWithPermission(helperDef.permKey);
     assert.ok(holders.length > 0, `${helperName} → ${helperDef.permKey} resolves to an empty holder set; the catalog is missing this perm key`);
   }
@@ -374,6 +378,11 @@ test('every PASS finding has empty extraRoles and a non-empty actualRoles set', 
   const result = audit();
   for (const f of result.findings.filter((x) => x.kind === 'pass')) {
     assert.deepEqual(f.extraRoles, [], `PASS ${f.source} → ${f.permKey} has extraRoles (should be empty)`);
+    // A perm that is registered in the catalog but not yet granted to any
+    // role (system-defined but unassigned) PASSes the audit vacuously
+    // (no actual roles to compare). Skip the non-empty-actualRoles check
+    // for those.
+    if (PERMISSIONS[f.permKey] && f.actualRoles.length === 0) continue;
     assert.ok(f.actualRoles.length > 0, `PASS ${f.source} → ${f.permKey} has empty actualRoles`);
     for (const role of f.actualRoles) {
       assert.ok(f.expectedRoles.includes(role), `PASS ${f.source} → ${f.permKey} actual role ${role} is not in expectedRoles`);

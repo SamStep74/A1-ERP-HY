@@ -38,7 +38,9 @@ const CATEGORIES = Object.freeze({
   mfg:       { id: 'mfg',       label: 'Manufacturing & Quality',   order: 1400 },
   ai:        { id: 'ai',        label: 'AI & Copilot',              order: 1500 },
   reports:   { id: 'reports',   label: 'Reports & Analytics',       order: 1600 },
+  analytics: { id: 'analytics', label: 'Analytics Snapshots & Reports', order: 1650 },
   studio:    { id: 'studio',    label: 'Studio & Automation',       order: 1700 },
+  pilot:     { id: 'pilot',     label: 'Pilot Engagements',         order: 1750 },
   compliance:{ id: 'compliance',label: 'Compliance & Audit',        order: 1800 },
 });
 
@@ -449,6 +451,10 @@ const PERMISSIONS = Object.freeze({
   'reports.spreadsheet.read':   { category: 'reports', sensitivity: 'low',     label: 'View spreadsheet',     description: 'View spreadsheet-style analytics.' },
   'reports.spreadsheet.update': { category: 'reports', sensitivity: 'high',    label: 'Manage spreadsheet',   description: 'Edit spreadsheet formulas and layouts.' },
 
+  // ───────────── Analytics Snapshots & Reports ─────────────
+  'analytics.snapshot.create':  { category: 'analytics', sensitivity: 'medium', label: 'Capture analytics snapshot', description: 'Freeze current operating metrics into a timestamped analytics snapshot.' },
+  'analytics.report.read':      { category: 'analytics', sensitivity: 'low',    label: 'View analytics report',     description: 'View a generated analytics report (owner or accountant packet).' },
+
   // ───────────── Studio & Automation ─────────────
   'studio.custom_field.read':   { category: 'studio', sensitivity: 'low',     label: 'View custom fields',  description: 'View custom field definitions.' },
   'studio.custom_field.update': { category: 'studio', sensitivity: 'high',    label: 'Manage custom fields',description: 'Create or update custom fields.' },
@@ -461,6 +467,21 @@ const PERMISSIONS = Object.freeze({
   'studio.webhook.update':      { category: 'studio', sensitivity: 'high',    label: 'Manage webhooks',     description: 'Create or update webhooks.' },
   'studio.layout.read':         { category: 'studio', sensitivity: 'low',     label: 'View layouts',        description: 'View custom layouts.' },
   'studio.layout.update':       { category: 'studio', sensitivity: 'medium',  label: 'Manage layouts',      description: 'Create or update custom layouts.' },
+
+  // ───────────── Pilot Engagements ─────────────
+  // Pilot engagements (e.g. clinic-wellness) are template-driven engagements
+  // that walk a tenant from launch readiness through paid handoff. Perms
+  // here gate the templates, briefs, operator workbenches, and accountant
+  // reviews. A future wave will grant these to the roles that should hold
+  // them; for now the perms are system-defined but unassigned.
+  'pilot.template.read':        { category: 'pilot', sensitivity: 'low',    label: 'View pilot templates',   description: 'View a pilot engagement template (e.g. clinic-wellness) and its definition.' },
+  'pilot.template.install':     { category: 'pilot', sensitivity: 'medium', label: 'Install pilot template', description: 'Install a pilot engagement template into the current tenant.' },
+  'pilot.brief.read':           { category: 'pilot', sensitivity: 'low',    label: 'View pilot owner briefs',  description: 'View owner briefs prepared for a pilot engagement.' },
+  'pilot.brief.create':         { category: 'pilot', sensitivity: 'medium', label: 'Create pilot owner brief', description: 'Create an owner brief for a pilot engagement.' },
+  'pilot.workbench.read':       { category: 'pilot', sensitivity: 'low',    label: 'View pilot operator workbenches',  description: 'View operator workbenches for a pilot engagement.' },
+  'pilot.workbench.create':     { category: 'pilot', sensitivity: 'medium', label: 'Create pilot operator workbench', description: 'Create an operator workbench entry for a pilot engagement.' },
+  'pilot.review.read':          { category: 'pilot', sensitivity: 'low',    label: 'View pilot accountant reviews',  description: 'View accountant reviews for a pilot engagement.' },
+  'pilot.review.create':        { category: 'pilot', sensitivity: 'medium', label: 'Create pilot accountant review', description: 'Create an accountant review for a pilot engagement.' },
 
   // ───────────── Compliance & Audit ─────────────
   'compliance.policy.read':     { category: 'compliance', sensitivity: 'low',     label: 'View policies',        description: 'View compliance policies.' },

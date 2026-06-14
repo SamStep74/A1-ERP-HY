@@ -722,14 +722,14 @@ const PERMISSION_SETS = Object.freeze({
     ]),
   },
   // AuditOperator keeps only the "prepare" perm (compliance.audit.prepare)
-  // which has no broad-grant audit findings. The audit/security perms
-  // (security.audit.read, security.audit.export, security.access.review,
+  // which has no broad-grant audit findings. The audit/security/integration
+  // perms (security.audit.read, security.audit.export, security.access.review,
   // security.session.list, security.session.revoke, system.integrations.read)
   // live in their own dedicated perm sets so the catalog can mirror each
   // legacy requireXxx allow-list exactly. Without this split, AuditOperator
   // would grant compliance.audit.prepare to roles that the legacy
-  // requireAuditReader/requireSessionAdmin/requireAccessReviewer helpers
-  // explicitly deny.
+  // requireAuditReader/requireSessionAdmin/requireAccessReviewer
+  // /requireIntegrationReader helpers explicitly deny.
   AuditOperator: {
     id: 'AuditOperator',
     label: 'Audit Operator',
@@ -737,7 +737,6 @@ const PERMISSION_SETS = Object.freeze({
     isSystem: true,
     permissions: Object.freeze([
       'compliance.audit.prepare',
-      'system.integrations.read',
     ]),
   },
   AuditDeliver: {

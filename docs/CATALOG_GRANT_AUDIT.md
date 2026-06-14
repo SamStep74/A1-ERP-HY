@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-14T10:23:02.767Z`
+Generated: `2026-06-14T10:45:31.586Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,10 +14,10 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 15 |
+| PASS — perm grants ⊆ legacy allow-list | 16 |
 | BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
-| NO LEGACY ALLOW-LIST — needs manual annotation | 23 |
-| UNKNOWN PERM KEY — not in current catalog | 10 |
+| NO LEGACY ALLOW-LIST — needs manual annotation | 32 |
+| UNKNOWN PERM KEY — not in current catalog | 0 |
 
 Total entries audited: **48**
 
@@ -36,6 +36,7 @@ Total entries audited: **48**
 | `requireCrmEditor` | `crm.deal.create` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
 | `requireCollectionEditor` | `crm.quote.send` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
 | `requireFinanceOperator` | `finance.journal.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
+| `requireAnalyticsSnapshotWriter` | `analytics.snapshot.create` | `Owner`, `Admin`, `Accountant` | _(empty)_ |
 | `GET /api/platform/tenant` | `system.tenant.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Owner` |
 | `GET /api/integrations/connectors` | `system.integrations.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
 | `POST /api/integrations/connectors/:key/configure` | `system.integrations.update` | `Owner`, `Admin` | `Admin`, `Owner` |
@@ -57,6 +58,7 @@ annotation inside the helper body and the lint will pick it up automatically.
 
 | Source | Perm key | Catalog grant |
 |---|---|---|
+| `requireAnalyticsReportReader` | `analytics.report.read` | _(empty)_ |
 | `POST /api/security/mfa/enroll` | `security.mfa.configure` | `Admin`, `Owner` |
 | `POST /api/security/mfa/verify-enrollment` | `security.mfa.configure` | `Admin`, `Owner` |
 | `GET /api/catalog/categories` | `inv.product.read` | `Accountant`, `Admin`, `Auditor`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser`, `SalesLead`, `SalesManager`, `SalesRep`, `WarehouseClerk` |
@@ -80,29 +82,14 @@ annotation inside the helper body and the lint will pick it up automatically.
 | `POST /api/purchase/orders/:id/receive` | `purchase.receipt.create` | `Accountant`, `Admin`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser` |
 | `POST /api/purchase/orders/:id/return` | `purchase.return.create` | `Accountant`, `Admin`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser` |
 | `POST /api/purchase/orders/:id/bill` | `finance.bill.create` | `Accountant`, `Admin`, `Bookkeeper`, `FinanceLead`, `Owner`, `PayrollClerk`, `PurchaseLead` |
-
-## UNKNOWN PERM KEY — not in current catalog
-
-These perm keys were targeted by Wave 3 (or catalogued in the audit
-map) but do not exist in the current `server/rbac/permissions.js`
-catalog. The audit cannot compute the role grant set for them, so
-they are reported separately from BROAD GRANT. Treat each row as a
-catalog gap: either the perm key was renamed in a later wave, or it
-was added to the route without being added to the catalog. Resolve
-by updating either the route or the catalog to match.
-
-| Source | Perm key | Note |
-|---|---|---|
-| `requireAnalyticsSnapshotWriter` | `analytics.snapshot.create` | permKey 'analytics.snapshot.create' is not in the PERMISSIONS catalog |
-| `requireAnalyticsReportReader` | `analytics.report.read` | permKey 'analytics.report.read' is not in the PERMISSIONS catalog |
-| `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | permKey 'pilot.template.read' is not in the PERMISSIONS catalog |
-| `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | permKey 'pilot.template.install' is not in the PERMISSIONS catalog |
-| `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | permKey 'pilot.brief.read' is not in the PERMISSIONS catalog |
-| `POST /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.create` | permKey 'pilot.brief.create' is not in the PERMISSIONS catalog |
-| `GET /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.read` | permKey 'pilot.workbench.read' is not in the PERMISSIONS catalog |
-| `POST /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.create` | permKey 'pilot.workbench.create' is not in the PERMISSIONS catalog |
-| `GET /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.read` | permKey 'pilot.review.read' is not in the PERMISSIONS catalog |
-| `POST /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.create` | permKey 'pilot.review.create' is not in the PERMISSIONS catalog |
+| `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | _(empty)_ |
+| `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | _(empty)_ |
+| `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | _(empty)_ |
+| `POST /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.create` | _(empty)_ |
+| `GET /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.read` | _(empty)_ |
+| `POST /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.create` | _(empty)_ |
+| `GET /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.read` | _(empty)_ |
+| `POST /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.create` | _(empty)_ |
 
 ---
 

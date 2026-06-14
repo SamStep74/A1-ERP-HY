@@ -3,10 +3,10 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 15,
+    "pass": 16,
     "broad": 0,
-    "no-legacy": 23,
-    "unknown-key": 10,
+    "no-legacy": 32,
+    "unknown-key": 0,
     "total": 48
   },
   "findings": [
@@ -197,22 +197,24 @@
       "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "pass",
       "source": "requireAnalyticsSnapshotWriter",
       "permKey": "analytics.snapshot.create",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant"
+      ],
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'analytics.snapshot.create' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "requireAnalyticsReportReader",
       "permKey": "analytics.report.read",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'analytics.report.read' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
       "kind": "pass",
@@ -693,76 +695,68 @@
       "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "GET /api/pilots/templates/clinic-wellness",
       "permKey": "pilot.template.read",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.template.read' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "POST /api/pilots/templates/clinic-wellness/install",
       "permKey": "pilot.template.install",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.template.install' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "GET /api/pilots/clinic-wellness/owner-briefs",
       "permKey": "pilot.brief.read",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.brief.read' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "POST /api/pilots/clinic-wellness/owner-briefs",
       "permKey": "pilot.brief.create",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.brief.create' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "GET /api/pilots/clinic-wellness/operator-workbenches",
       "permKey": "pilot.workbench.read",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.workbench.read' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "POST /api/pilots/clinic-wellness/operator-workbenches",
       "permKey": "pilot.workbench.create",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.workbench.create' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "GET /api/pilots/clinic-wellness/accountant-reviews",
       "permKey": "pilot.review.read",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.review.read' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     },
     {
-      "kind": "unknown-key",
+      "kind": "no-legacy",
       "source": "POST /api/pilots/clinic-wellness/accountant-reviews",
       "permKey": "pilot.review.create",
       "expectedRoles": null,
       "actualRoles": [],
-      "extraRoles": [],
-      "note": "permKey 'pilot.review.create' is not in the PERMISSIONS catalog"
+      "extraRoles": []
     }
   ]
 }

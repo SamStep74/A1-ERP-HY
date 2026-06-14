@@ -439,6 +439,8 @@ module.exports = {
   loadHelperBodies,
   renderMarkdownReport,
   renderStdoutSummary,
-  // Expose the map for downstream tools / tests.
+  // Expose the map + catalog for downstream tools / tests.
   auditMap,
+  PERMISSIONS,
+  isValidKey,
 };
