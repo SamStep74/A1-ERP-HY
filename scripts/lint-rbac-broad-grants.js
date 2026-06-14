@@ -221,6 +221,11 @@ function audit() {
   //    migrate-preHandlers-only worker does NOT re-apply). These were
   //    the bulk of the wave 3 conversion; the audit proves the catalog
   //    grants today are correct for the legacy allow-lists in scope.
+  //    If a route in the slice has been annotated (legacyAllowList set),
+  //    the audit uses it as expectedRoles and reports PASS / BROAD GRANT
+  //    exactly like the auth-security slice. Routes without
+  //    legacyAllowList are reported as 'no-legacy' so a future wave can
+  //    fill in the annotation.
   const widerSlice = (auditMap.routes['catalog-inventory-purchase-pilots-slice'] || {}).routes || [];
   for (const r of widerSlice) {
     if (!isValidKey(r.permKey)) {
@@ -236,9 +241,17 @@ function audit() {
       continue;
     }
     const actual = rolesWithPermission(r.permKey);
-    // No legacyAllowList in the static map for these; the audit reports
-    // them as 'no-legacy' and the report calls them out by name.
-    recordNoLegacy(`${r.method} ${r.path}`, r.permKey, actual);
+    if (!r.legacyAllowList || r.legacyAllowList.length === 0) {
+      recordNoLegacy(`${r.method} ${r.path}`, r.permKey, actual);
+      continue;
+    }
+    const expected = new Set(r.legacyAllowList);
+    const extras = actual.filter((role) => !expected.has(role));
+    if (extras.length > 0) {
+      recordBroad(`${r.method} ${r.path}`, r.permKey, r.legacyAllowList, actual, extras);
+    } else {
+      recordPass(`${r.method} ${r.path}`, r.permKey, r.legacyAllowList, actual);
+    }
   }
 
   return { findings, generatedAt: new Date().toISOString() };

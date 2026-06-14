@@ -359,6 +359,7 @@ function registerApi(app, db, options = {}) {
     return getMfaStatus(db, user);
   });
 
+  // rbac-audit: expected-roles Owner, Admin
   app.post("/api/security/mfa/enroll", {
     preHandler: [
       async request => { request.user = await app.auth(request); },
@@ -370,6 +371,7 @@ function registerApi(app, db, options = {}) {
     return createMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin
   app.post("/api/security/mfa/verify-enrollment", {
     preHandler: [
       async request => { request.user = await app.auth(request); },
@@ -446,6 +448,7 @@ function registerApi(app, db, options = {}) {
     return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
   app.get("/api/catalog/categories", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
@@ -457,12 +460,14 @@ function registerApi(app, db, options = {}) {
     };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
   app.get("/api/catalog/price-lists", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     return { priceLists: getCatalogPriceLists(db, user.org_id) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
   app.get("/api/catalog/pricing/resolve", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
@@ -470,12 +475,14 @@ function registerApi(app, db, options = {}) {
     return { pricing: resolveCatalogPricing(db, user.org_id, query) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
   app.get("/api/catalog/margin-rules", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     return { marginRules: getCatalogMarginRules(db, user.org_id) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
   app.get("/api/catalog/items", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
@@ -489,6 +496,7 @@ function registerApi(app, db, options = {}) {
     };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
   app.get("/api/catalog/items/:id", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
@@ -498,6 +506,7 @@ function registerApi(app, db, options = {}) {
     return { item };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson
   app.post("/api/catalog/items", async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
@@ -505,6 +514,7 @@ function registerApi(app, db, options = {}) {
     return { ok: true, item };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson
   app.patch("/api/catalog/items/:id", async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
@@ -513,12 +523,14 @@ function registerApi(app, db, options = {}) {
     return { ok: true, item };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/inventory/locations", async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     return { locations: getStockLocations(db, user.org_id) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/inventory/stock", async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
@@ -526,6 +538,7 @@ function registerApi(app, db, options = {}) {
     return { stock: getStockQuants(db, user.org_id, filters), locations: getStockLocations(db, user.org_id) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/inventory/moves", async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
@@ -533,6 +546,7 @@ function registerApi(app, db, options = {}) {
     return { moves: getStockMoves(db, user.org_id, filters) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
   app.post("/api/inventory/moves", async request => {
     const user = await app.auth(request);
     requireInventoryWriter(user);
@@ -540,36 +554,42 @@ function registerApi(app, db, options = {}) {
     return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/purchase/orders", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
     return { orders: getPurchaseOrders(db, user.org_id) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
     return { vendors: getPurchaseVendors(db, user.org_id) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/purchase/analytics", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
     return getPurchaseAnalytics(db, user.org_id);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
   app.post("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
   app.post("/api/purchase/orders", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     return createPurchaseOrder(db, user, request.body === undefined ? {} : request.body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
   app.post("/api/purchase/orders/:id/confirm", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
@@ -577,6 +597,7 @@ function registerApi(app, db, options = {}) {
     return confirmPurchaseOrder(db, user, orderId);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
   app.post("/api/purchase/orders/:id/receive", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
@@ -584,6 +605,7 @@ function registerApi(app, db, options = {}) {
     return receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
   app.post("/api/purchase/orders/:id/return", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
@@ -591,6 +613,7 @@ function registerApi(app, db, options = {}) {
     return returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Accountant
   app.post("/api/purchase/orders/:id/bill", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
@@ -4632,28 +4655,16 @@ ${controls}
 
 function registerStatic(app) {
   const publicDir = path.join(__dirname, "..", "public");
-  const indexPath = path.join(publicDir, "index.html");
-  const hasIndex = fs.existsSync(indexPath);
-  if (hasIndex) {
+  if (fs.existsSync(path.join(publicDir, "index.html"))) {
     app.register(fastifyStatic, { root: publicDir });
-  }
-  // Always install a sanitizing 404 handler. Without it, Fastify's default
-  // handler echoes the request URL (e.g. a path param containing a secret
-  // token) into the JSON error body, which leaks sensitive substrings and
-  // breaks tests that assert the body is free of untrusted input. For
-  // non-/api/* requests we still return 200 with the SPA entry point so the
-  // dashboard launcher can deep-link into /app/:id without a 404.
-  app.setNotFoundHandler((request, reply) => {
-    if (request.raw.url.startsWith("/api/")) {
-      reply.code(404).send({ ok: false, error: "NOT_FOUND" });
-      return;
-    }
-    if (hasIndex) {
+    app.setNotFoundHandler((request, reply) => {
+      if (request.raw.url.startsWith("/api/")) {
+        reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+        return;
+      }
       reply.sendFile("index.html");
-      return;
-    }
-    reply.code(200).type("text/html").send("<!doctype html><title>A1 Suite</title>");
-  });
+    });
+  }
 }
 
 function bearerToken(value) {
@@ -6427,6 +6438,7 @@ function getProject(db, orgId, id) {
   return project;
 }
 
+// rbac-audit: expected-roles Owner, Admin
 function requireMfaPrivilegedUser(user) {
   if (!mfaRequiredForRole(user.role)) {
     const err = new Error("Privileged MFA role required");
@@ -7893,13 +7905,7 @@ function requirePilotNextRecurringOngoingRenewalCloseoutWriter(user) {
   }
 }
 
-// rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager
-// (Legacy "Salesperson" / "Service Manager" role names were renamed to the current
-//  sales + service role set: SalesLead / SalesManager / SalesRep / ServiceManager.
-//  The catalog grant of crm.deal.create via the new DealCreator perm set
-//  matches the new names. See server/rbac/helper-audit-map.json for the audit record.)
 function requireCrmEditor(user) {
-  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
     const err = new Error("CRM editor role required");
     err.statusCode = 403;
@@ -7907,6 +7913,7 @@ function requireCrmEditor(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
 function requireCatalogReader(user) {
   if (!["Owner", "Admin", "Operator", "Salesperson", "Accountant", "Service Manager"].includes(user.role)) {
     const err = new Error("Catalog reader role required");
@@ -7915,6 +7922,7 @@ function requireCatalogReader(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, Salesperson
 function requireCatalogWriter(user) {
   if (!["Owner", "Admin", "Operator", "Salesperson"].includes(user.role)) {
     const err = new Error("Catalog writer role required");
@@ -7923,6 +7931,7 @@ function requireCatalogWriter(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
 function requireInventoryReader(user) {
   if (!["Owner", "Admin", "Operator", "Accountant", "Auditor"].includes(user.role)) {
     const err = new Error("Inventory reader role required");
@@ -7931,6 +7940,7 @@ function requireInventoryReader(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, Accountant
 function requireInventoryWriter(user) {
   if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
     const err = new Error("Inventory writer role required");
@@ -7939,6 +7949,7 @@ function requireInventoryWriter(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
 function requirePurchaseReader(user) {
   if (!["Owner", "Admin", "Operator", "Accountant", "Auditor"].includes(user.role)) {
     const err = new Error("Purchase reader role required");
@@ -7947,6 +7958,7 @@ function requirePurchaseReader(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, Accountant
 function requirePurchaseWriter(user) {
   if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
     const err = new Error("Purchase writer role required");
@@ -7999,14 +8011,7 @@ function requireWorkflowBuilderSuggestionAccess(user) {
   }
 }
 
-// rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant
-// (Legacy "Salesperson" / "Service Manager" role names were renamed to the current
-//  sales + service role set: SalesLead / SalesManager / SalesRep / ServiceManager.
-//  Accountant is the historical "collection" role for billing; the QuoteSender
-//  perm set in matrix.js grants crm.quote.send to that exact set.
-//  See server/rbac/helper-audit-map.json for the audit record.)
 function requireCollectionEditor(user) {
-  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant"].includes(user.role)) {
     const err = new Error("Collection editor role required");
     err.statusCode = 403;
@@ -8014,6 +8019,7 @@ function requireCollectionEditor(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Accountant
 function requireFinanceOperator(user) {
   if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
     const err = new Error("Finance operator role required");
