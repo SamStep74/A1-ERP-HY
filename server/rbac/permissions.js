@@ -40,6 +40,7 @@ const CATEGORIES = Object.freeze({
   reports:   { id: 'reports',   label: 'Reports & Analytics',       order: 1600 },
   studio:    { id: 'studio',    label: 'Studio & Automation',       order: 1700 },
   compliance:{ id: 'compliance',label: 'Compliance & Audit',        order: 1800 },
+  pilot:     { id: 'pilot',     label: 'Pilot & Templates',         order: 1900 },
 });
 
 // Sensitivity tag — drives MFA enforcement, dual-control rules, and audit weight.
@@ -490,6 +491,22 @@ const PERMISSIONS = Object.freeze({
   'compliance.audit.deliver':   { category: 'compliance', sensitivity: 'critical',label: 'Deliver audit packet',description: 'Submit or hand over an audit packet externally.' },
   'compliance.sox.read':        { category: 'compliance', sensitivity: 'medium',  label: 'View SOX controls',    description: 'View SOX financial controls and certifications.' },
   'compliance.sox.update':      { category: 'compliance', sensitivity: 'high',    label: 'Manage SOX controls',  description: 'Update SOX controls and certifications.' },
+
+  // ───────────── Pilot & Templates ─────────────
+  // Clinic-wellness pilot lifecycle: template install, owner briefs,
+  // operator workbenches, accountant reviews. The renewal/quote/closeout
+  // chain (launch-readiness, quote-handoff, hayhashvapah drafts,
+  // payment, closeout, and the renewal/next/following/... variants) is
+  // intentionally NOT cataloged here — those routes are deferred to a
+  // follow-up wave and still use the legacy requirePilot* helpers.
+  'pilot.template.read':        { category: 'pilot', sensitivity: 'low',     label: 'View pilot template',    description: 'View a clinic-wellness pilot template (readme, BOM summary, launch checklist).' },
+  'pilot.template.install':     { category: 'pilot', sensitivity: 'medium',  label: 'Install pilot template', description: 'Install a clinic-wellness pilot template into the org (creates the default workbench + brief queue).' },
+  'pilot.brief.read':           { category: 'pilot', sensitivity: 'low',     label: 'View pilot briefs',      description: 'View clinic-wellness pilot owner briefs (Owner daily brief packets).' },
+  'pilot.brief.create':         { category: 'pilot', sensitivity: 'low',     label: 'Create pilot brief',     description: 'Add a clinic-wellness pilot owner brief (Owner-only by design).' },
+  'pilot.workbench.read':       { category: 'pilot', sensitivity: 'low',     label: 'View pilot workbench',   description: 'View clinic-wellness pilot operator workbench (Operator daily queue).' },
+  'pilot.workbench.create':     { category: 'pilot', sensitivity: 'low',     label: 'Create pilot workbench', description: 'Add a clinic-wellness pilot operator workbench entry.' },
+  'pilot.review.read':          { category: 'pilot', sensitivity: 'low',     label: 'View pilot reviews',     description: 'View clinic-wellness pilot accountant reviews (Accountant close packet).' },
+  'pilot.review.create':        { category: 'pilot', sensitivity: 'low',     label: 'Create pilot review',    description: 'Add a clinic-wellness pilot accountant review entry.' },
 });
 
 // Index by category for UI rendering.

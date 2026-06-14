@@ -174,6 +174,20 @@ const FLS_RULES = Object.freeze({
   // Auth
   'security.user.password_hash':    { minPermission: 'security.user.read',     label: 'Password hash' },
   'security.user.mfa_secret':       { minPermission: 'security.user.read',     label: 'MFA secret' },
+  // Inventory & purchasing — pricing/valuation is sensitive even when the
+  // resource itself is readable. Cost and margin only visible to readers
+  // that hold a higher-sensitivity permission (InventoryOperator or above
+  // holds inv.stock.receive which we use as the gate here; the dedicated
+  // inv.valuation.read key would also work but is role-specific).
+  'inv.product.cost_price':         { minPermission: 'inv.stock.receive',      label: 'Product cost price' },
+  'inv.product.margin':             { minPermission: 'inv.stock.receive',      label: 'Product margin' },
+  'inv.stock.unit_cost':            { minPermission: 'inv.stock.receive',      label: 'Stock unit cost' },
+  'inv.stock.total_value':          { minPermission: 'inv.stock.receive',      label: 'Stock total value' },
+  'purchase.vendor.pricing':        { minPermission: 'purchase.pricelist.read',label: 'Vendor pricing' },
+  'purchase.vendor.unit_cost':      { minPermission: 'purchase.pricelist.read',label: 'Vendor unit cost' },
+  'purchase.po.amount':             { minPermission: 'purchase.po.create',     label: 'PO amount' },
+  'purchase.po.total':              { minPermission: 'purchase.po.create',     label: 'PO total' },
+  'purchase.po.unit_cost':          { minPermission: 'purchase.po.create',     label: 'PO unit cost' },
 });
 
 function redactFields(user, obj, fieldPaths) {

@@ -15,6 +15,18 @@ const {
   resolveVatRate
 } = require("./db");
 
+// Wave 3 Phase 1 RBAC migration — catalog-driven preHandlers and FLS
+// redaction. We import the small subset of guard helpers that
+// requirePerm-style preHandlers need; the legacy requireXxx helpers
+// defined later in this file (requireCatalogReader, requireOwner, ...)
+// stay in place until that slice is peeled out in a later wave.
+const {
+  requirePerm,
+  requirePermissionWithSensitivity,
+  redactFields,
+  FLS_RULES,
+} = require("./rbac/guards");
+
 const DEFAULT_REPORT_DATE = "2026-05-26";
 const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
@@ -415,207 +427,276 @@ function registerApi(app, db, options = {}) {
     return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
-  app.get("/api/catalog/categories", async request => {
+  // Catalog pricing/margin fields are FLS-gated; only callers that hold
+  // inv.stock.receive (or above) get to see cost_price / margin. The
+  // `requireCatalogReader` helper below is kept as defense in depth — the
+  // real gate is the preHandler + the redactFields call on the response.
+  const CATALOG_PRICING_REDACT_PATHS = Object.freeze([
+    'inv.product.cost_price',
+    'inv.product.margin',
+  ]);
+
+  app.get("/api/catalog/categories", { preHandler: requirePerm('inv.product.read') }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return {
+    return redactFields(request.user, {
       categories: getCatalogCategories(db, user.org_id),
       unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
       marginRules: getCatalogMarginRules(db, user.org_id),
       priceLists: getCatalogPriceLists(db, user.org_id)
-    };
+    }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.get("/api/catalog/price-lists", async request => {
+  app.get("/api/catalog/price-lists", { preHandler: requirePerm('inv.product.read') }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return { priceLists: getCatalogPriceLists(db, user.org_id) };
+    return redactFields(request.user, {
+      priceLists: getCatalogPriceLists(db, user.org_id)
+    }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.get("/api/catalog/pricing/resolve", async request => {
+  app.get("/api/catalog/pricing/resolve", { preHandler: requirePerm('inv.product.read') }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const query = normalizeCatalogPriceResolveQuery(request.query || {});
-    return { pricing: resolveCatalogPricing(db, user.org_id, query) };
+    return redactFields(request.user, {
+      pricing: resolveCatalogPricing(db, user.org_id, query)
+    }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.get("/api/catalog/margin-rules", async request => {
+  app.get("/api/catalog/margin-rules", { preHandler: requirePerm('inv.product.read') }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return { marginRules: getCatalogMarginRules(db, user.org_id) };
+    return redactFields(request.user, {
+      marginRules: getCatalogMarginRules(db, user.org_id)
+    }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.get("/api/catalog/items", async request => {
+  app.get("/api/catalog/items", { preHandler: requirePerm('inv.product.read') }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const filters = normalizeCatalogItemQuery(request.query || {});
-    return {
+    return redactFields(request.user, {
       items: getCatalogItems(db, user.org_id, filters),
       categories: getCatalogCategories(db, user.org_id),
       unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
       marginRules: getCatalogMarginRules(db, user.org_id),
       priceLists: getCatalogPriceLists(db, user.org_id)
-    };
+    }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.get("/api/catalog/items/:id", async request => {
+  app.get("/api/catalog/items/:id", { preHandler: requirePerm('inv.product.read') }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
     const item = getCatalogItem(db, user.org_id, itemId);
     if (!item) { const err = new Error("Catalog item not found"); err.statusCode = 404; throw err; }
-    return { item };
+    return redactFields(request.user, { item }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.post("/api/catalog/items", async request => {
+  app.post("/api/catalog/items", { preHandler: requirePerm('inv.product.create') }, async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
     const item = createCatalogItem(db, user, request.body === undefined ? {} : request.body);
-    return { ok: true, item };
+    return redactFields(request.user, { ok: true, item }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.patch("/api/catalog/items/:id", async request => {
+  app.patch("/api/catalog/items/:id", { preHandler: requirePerm('inv.product.update') }, async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
     const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
     const item = updateCatalogItem(db, user, itemId, request.body === undefined ? {} : request.body);
-    return { ok: true, item };
+    return redactFields(request.user, { ok: true, item }, CATALOG_PRICING_REDACT_PATHS);
   });
 
-  app.get("/api/inventory/locations", async request => {
+  // Inventory responses carry unit_cost / total_value; only callers that
+  // hold inv.stock.receive (or above) see the cost columns. The
+  // requireInventoryReader / requireInventoryWriter in-handler helpers
+  // stay as defense in depth — the real gate is the preHandler +
+  // redactFields call on the response.
+  const INVENTORY_REDACT_PATHS = Object.freeze([
+    'inv.stock.unit_cost',
+    'inv.stock.total_value',
+  ]);
+
+  app.get("/api/inventory/locations", { preHandler: requirePerm('inv.stock.read') }, async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     return { locations: getStockLocations(db, user.org_id) };
   });
 
-  app.get("/api/inventory/stock", async request => {
+  app.get("/api/inventory/stock", { preHandler: requirePerm('inv.stock.read') }, async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     const filters = normalizeInventoryQuery(request.query || {});
-    return { stock: getStockQuants(db, user.org_id, filters), locations: getStockLocations(db, user.org_id) };
+    return redactFields(request.user, {
+      stock: getStockQuants(db, user.org_id, filters),
+      locations: getStockLocations(db, user.org_id)
+    }, INVENTORY_REDACT_PATHS);
   });
 
-  app.get("/api/inventory/moves", async request => {
+  app.get("/api/inventory/moves", { preHandler: requirePerm('inv.stock.read') }, async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     const filters = normalizeInventoryQuery(request.query || {});
-    return { moves: getStockMoves(db, user.org_id, filters) };
+    return redactFields(request.user, {
+      moves: getStockMoves(db, user.org_id, filters)
+    }, INVENTORY_REDACT_PATHS);
   });
 
-  app.post("/api/inventory/moves", async request => {
+  app.post("/api/inventory/moves", { preHandler: requirePerm('inv.stock.receive') }, async request => {
     const user = await app.auth(request);
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
-    return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
+    return redactFields(request.user, {
+      ok: true,
+      move,
+      stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId })
+    }, INVENTORY_REDACT_PATHS);
   });
 
-  app.get("/api/purchase/orders", async request => {
+  // Purchase responses carry vendor pricing, PO amount, and unit cost.
+  // Callers need purchase.pricelist.read to see vendor pricing, and
+  // purchase.po.create to see PO amount / total. The requirePurchaseReader
+  // and requirePurchaseWriter in-handler helpers stay as defense in depth.
+  const PURCHASE_VENDOR_REDACT_PATHS = Object.freeze([
+    'purchase.vendor.pricing',
+    'purchase.vendor.unit_cost',
+  ]);
+  const PURCHASE_PO_REDACT_PATHS = Object.freeze([
+    'purchase.po.amount',
+    'purchase.po.total',
+    'purchase.po.unit_cost',
+  ]);
+
+  app.get("/api/purchase/orders", { preHandler: requirePerm('purchase.po.read') }, async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return { orders: getPurchaseOrders(db, user.org_id) };
+    return redactFields(request.user, {
+      orders: getPurchaseOrders(db, user.org_id)
+    }, PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.get("/api/purchase/vendors", async request => {
+  app.get("/api/purchase/vendors", { preHandler: requirePerm('purchase.vendor.read') }, async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return { vendors: getPurchaseVendors(db, user.org_id) };
+    return redactFields(request.user, {
+      vendors: getPurchaseVendors(db, user.org_id)
+    }, PURCHASE_VENDOR_REDACT_PATHS);
   });
 
-  app.get("/api/purchase/analytics", async request => {
+  app.get("/api/purchase/analytics", { preHandler: requirePerm('purchase.analytics.read') }, async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return getPurchaseAnalytics(db, user.org_id);
+    return redactFields(request.user, getPurchaseAnalytics(db, user.org_id), PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.post("/api/purchase/vendors", async request => {
+  app.post("/api/purchase/vendors", { preHandler: requirePerm('purchase.vendor.create') }, async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
-    return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
+    return redactFields(request.user, createPurchaseVendor(db, user, request.body === undefined ? {} : request.body), PURCHASE_VENDOR_REDACT_PATHS);
   });
 
-  app.post("/api/purchase/orders", async request => {
+  app.post("/api/purchase/orders", { preHandler: requirePerm('purchase.po.create') }, async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
-    return createPurchaseOrder(db, user, request.body === undefined ? {} : request.body);
+    return redactFields(request.user, createPurchaseOrder(db, user, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.post("/api/purchase/orders/:id/confirm", async request => {
+  app.post("/api/purchase/orders/:id/confirm", { preHandler: requirePerm('purchase.po.update') }, async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return confirmPurchaseOrder(db, user, orderId);
+    return redactFields(request.user, confirmPurchaseOrder(db, user, orderId), PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.post("/api/purchase/orders/:id/receive", async request => {
+  app.post("/api/purchase/orders/:id/receive", { preHandler: requirePerm('purchase.receipt.create') }, async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+    return redactFields(request.user, receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.post("/api/purchase/orders/:id/return", async request => {
+  app.post("/api/purchase/orders/:id/return", { preHandler: requirePerm('purchase.return.create') }, async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+    return redactFields(request.user, returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.post("/api/purchase/orders/:id/bill", async request => {
+  app.post("/api/purchase/orders/:id/bill", { preHandler: requirePerm('finance.bill.create') }, async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+    return redactFields(request.user, billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
   });
 
-  app.get("/api/pilots/templates/clinic-wellness", async request => {
+  // Wave 3 Phase 1 catalog pilot keys cover the 4 main entity types:
+  // templates, owner-briefs, operator-workbenches, accountant-reviews.
+  // The downstream launch/quote/hayhashvapah/closeout/renewal chain is
+  // intentionally left on the legacy requirePilot* helpers (with a
+  // deferral comment) until a follow-up wave adds the corresponding
+  // permission keys. requirePerm() already calls
+  // requirePermissionWithSensitivity internally, so pilot.template.install
+  // (medium) gets sensitivity gating from the preHandler alone.
+  app.get("/api/pilots/templates/clinic-wellness", { preHandler: requirePerm('pilot.template.read') }, async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
     return getClinicWellnessPilotTemplateResponse(db, user.org_id);
   });
 
-  app.post("/api/pilots/templates/clinic-wellness/install", async request => {
+  app.post("/api/pilots/templates/clinic-wellness/install", { preHandler: requirePerm('pilot.template.install') }, async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
     const body = request.body === undefined ? {} : request.body;
     return installClinicWellnessPilotTemplate(db, user, body);
   });
 
-  app.get("/api/pilots/clinic-wellness/owner-briefs", async request => {
+  app.get("/api/pilots/clinic-wellness/owner-briefs", { preHandler: requirePerm('pilot.brief.read') }, async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
     return { briefs: getPilotOwnerBriefs(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
-  app.post("/api/pilots/clinic-wellness/owner-briefs", async request => {
+  app.post("/api/pilots/clinic-wellness/owner-briefs", { preHandler: requirePerm('pilot.brief.create') }, async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
     return createClinicWellnessOwnerBrief(db, user, request.body || {});
   });
 
-  app.get("/api/pilots/clinic-wellness/operator-workbenches", async request => {
+  app.get("/api/pilots/clinic-wellness/operator-workbenches", { preHandler: requirePerm('pilot.workbench.read') }, async request => {
     const user = await app.auth(request);
     requirePilotOperatorWorkbenchReader(user);
     return { workbenches: getPilotOperatorWorkbenches(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
-  app.post("/api/pilots/clinic-wellness/operator-workbenches", async request => {
+  app.post("/api/pilots/clinic-wellness/operator-workbenches", { preHandler: requirePerm('pilot.workbench.create') }, async request => {
     const user = await app.auth(request);
     requirePilotOperatorWorkbenchWriter(user);
     return createClinicWellnessOperatorWorkbench(db, user, request.body || {});
   });
 
-  app.get("/api/pilots/clinic-wellness/accountant-reviews", async request => {
+  app.get("/api/pilots/clinic-wellness/accountant-reviews", { preHandler: requirePerm('pilot.review.read') }, async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewReader(user);
     return { reviews: getPilotAccountantReviews(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
-  app.post("/api/pilots/clinic-wellness/accountant-reviews", async request => {
+  app.post("/api/pilots/clinic-wellness/accountant-reviews", { preHandler: requirePerm('pilot.review.create') }, async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewWriter(user);
     return createClinicWellnessAccountantReview(db, user, request.body || {});
   });
 
+  // rbac-migration-wave3: migrate-catalog-inventory owns nothing past the
+  // accountant-reviews route. The launch-readiness / launch-remediation /
+  // remediation-resolution / launch-clearance / paid-offers / quote-handoff
+  // / quote-release / quote-acceptance-handoff / hayhashvapah-drafts /
+  // hayhashvapah-posting / payment-collection / closeout / renewal-quote /
+  // next-renewal-quote / ... chain (and the related helper functions
+  // requirePilotLaunchReadiness*, requirePilotQuoteHandoff*, ...) remains
+  // on the legacy role-check helpers until a follow-up wave adds the
+  // corresponding permission keys.
   app.get("/api/pilots/clinic-wellness/launch-readiness", async request => {
     const user = await app.auth(request);
     requirePilotLaunchReadinessReader(user);

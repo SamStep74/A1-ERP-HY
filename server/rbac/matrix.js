@@ -694,6 +694,22 @@ const PERMISSION_SETS = Object.freeze({
       'compliance.sox.update',
     ]),
   },
+  PilotOperator: {
+    id: 'PilotOperator',
+    label: 'Pilot Operator',
+    description: 'Day-to-day clinic-wellness pilot operator: view templates, manage owner briefs, workbenches, and accountant reviews. The renewal/quote/closeout chain still requires role-specific grants.',
+    isSystem: true,
+    permissions: Object.freeze([
+      'pilot.template.read',
+      'pilot.template.install',
+      'pilot.brief.read',
+      'pilot.brief.create',
+      'pilot.workbench.read',
+      'pilot.workbench.create',
+      'pilot.review.read',
+      'pilot.review.create',
+    ]),
+  },
   RetentionAdmin: {
     id: 'RetentionAdmin',
     label: 'Retention Admin',
