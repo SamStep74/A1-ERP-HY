@@ -174,6 +174,20 @@ const FLS_RULES = Object.freeze({
   // Auth
   'security.user.password_hash':    { minPermission: 'security.user.read',     label: 'Password hash' },
   'security.user.mfa_secret':       { minPermission: 'security.user.read',     label: 'MFA secret' },
+  // Inventory & purchasing — pricing/valuation is sensitive even when the
+  // resource itself is readable. Cost and margin only visible to readers
+  // that hold a higher-sensitivity permission (InventoryOperator or above
+  // holds inv.stock.receive which we use as the gate here; the dedicated
+  // inv.valuation.read key would also work but is role-specific).
+  'inv.product.cost_price':         { minPermission: 'inv.stock.receive',      label: 'Product cost price' },
+  'inv.product.margin':             { minPermission: 'inv.stock.receive',      label: 'Product margin' },
+  'inv.stock.unit_cost':            { minPermission: 'inv.stock.receive',      label: 'Stock unit cost' },
+  'inv.stock.total_value':          { minPermission: 'inv.stock.receive',      label: 'Stock total value' },
+  'purchase.vendor.pricing':        { minPermission: 'purchase.pricelist.read',label: 'Vendor pricing' },
+  'purchase.vendor.unit_cost':      { minPermission: 'purchase.pricelist.read',label: 'Vendor unit cost' },
+  'purchase.po.amount':             { minPermission: 'purchase.po.create',     label: 'PO amount' },
+  'purchase.po.total':              { minPermission: 'purchase.po.create',     label: 'PO total' },
+  'purchase.po.unit_cost':          { minPermission: 'purchase.po.create',     label: 'PO unit cost' },
 });
 
 function redactFields(user, obj, fieldPaths) {
@@ -196,14 +210,23 @@ function redactFields(user, obj, fieldPaths) {
       delete out[leaf];
       deleted = true;
     } else {
-      let cur = out;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!cur || typeof cur !== 'object') break;
-        cur = cur[parts[i]];
-      }
-      if (cur && typeof cur === 'object' && Object.prototype.hasOwnProperty.call(cur, leaf)) {
-        delete cur[leaf];
+      // Also try the camelCase form of the leaf, since many API responses
+      // return flat records with camelCase keys (e.g. { accountNumber: '...' }
+      // for the snake_case leaf `account_number`).
+      const camel = leaf.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+      if (camel !== leaf && Object.prototype.hasOwnProperty.call(out, camel)) {
+        delete out[camel];
         deleted = true;
+      } else {
+        let cur = out;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!cur || typeof cur !== 'object') break;
+          cur = cur[parts[i]];
+        }
+        if (cur && typeof cur === 'object' && Object.prototype.hasOwnProperty.call(cur, leaf)) {
+          delete cur[leaf];
+          deleted = true;
+        }
       }
     }
     // Silently skip paths that don't match the object shape — the caller may

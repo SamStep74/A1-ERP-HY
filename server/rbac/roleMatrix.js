@@ -38,7 +38,7 @@ const ROLE_MATRIX = Object.freeze({
     'ProjectsOperator', 'DeskOperator', 'DeskAdmin',
     'DocsOperator', 'DocsAdmin', 'MarketingOperator', 'MarketingAutomation', 'ManufacturingOperator', 'ManufacturingAdmin',
     'StudioBuilder', 'ReportBuilder', 'AuditOperator',
-    'AIEnabled', 'AIMutator', 'AIGovernance', 'AgentDeveloper', 'StandardUser',
+    'AIEnabled', 'AIMutator', 'AIGovernance', 'AgentDeveloper', 'PilotOperator', 'StandardUser',
   ]),
 
   // ───────── Functional leads ─────────

@@ -40,6 +40,7 @@ const CATEGORIES = Object.freeze({
   reports:   { id: 'reports',   label: 'Reports & Analytics',       order: 1600 },
   studio:    { id: 'studio',    label: 'Studio & Automation',       order: 1700 },
   compliance:{ id: 'compliance',label: 'Compliance & Audit',        order: 1800 },
+  pilot:     { id: 'pilot',     label: 'Pilot & Templates',         order: 1900 },
 });
 
 // Sensitivity tag — drives MFA enforcement, dual-control rules, and audit weight.
@@ -449,6 +450,19 @@ const PERMISSIONS = Object.freeze({
   'reports.spreadsheet.read':   { category: 'reports', sensitivity: 'low',     label: 'View spreadsheet',     description: 'View spreadsheet-style analytics.' },
   'reports.spreadsheet.update': { category: 'reports', sensitivity: 'high',    label: 'Manage spreadsheet',   description: 'Edit spreadsheet formulas and layouts.' },
 
+  // ───────────── Analytics (semantic metrics, snapshots, monthly series, budget) ─────────────
+  'analytics.snapshot.read':     { category: 'reports', sensitivity: 'low',     label: 'View analytics snapshot',   description: 'View captured semantic metric snapshots.' },
+  'analytics.snapshot.create':   { category: 'reports', sensitivity: 'medium',  label: 'Capture analytics snapshot', description: 'Capture a new semantic metric snapshot (admin/accountant).' },
+  'analytics.snapshot.capture':  { category: 'reports', sensitivity: 'medium',  label: 'Capture metric snapshot',    description: 'Freeze today\'s operating metrics for reports.' },
+  'analytics.report.read':       { category: 'reports', sensitivity: 'low',     label: 'View analytics report',      description: 'View analytics reports (owner or accountant scoped).' },
+  'analytics.report.write':      { category: 'reports', sensitivity: 'medium',  label: 'Write analytics report',     description: 'Build or update an analytics report definition.' },
+  'analytics.report.export':     { category: 'reports', sensitivity: 'medium',  label: 'Export analytics report',    description: 'Export analytics report to CSV/JSON.' },
+  'analytics.monthly_series.read':{category: 'reports', sensitivity: 'low',     label: 'View monthly series',        description: 'View monthly analytics time series.' },
+  'analytics.budget.read':       { category: 'reports', sensitivity: 'low',     label: 'View analytics budget',      description: 'View analytics budget vs actual.' },
+  'analytics.receivables_aging.read':{category: 'reports', sensitivity: 'low',  label: 'View receivables aging',     description: 'View AR aging analysis.' },
+  'analytics.semantic_metrics.read':{category: 'reports', sensitivity: 'low',   label: 'View semantic metrics',      description: 'View semantic metric catalogue.' },
+  'analytics.role_dashboard.read':  {category: 'reports', sensitivity: 'low',   label: 'View role dashboard',        description: 'View the role-configured analytics dashboard.' },
+
   // ───────────── Studio & Automation ─────────────
   'studio.custom_field.read':   { category: 'studio', sensitivity: 'low',     label: 'View custom fields',  description: 'View custom field definitions.' },
   'studio.custom_field.update': { category: 'studio', sensitivity: 'high',    label: 'Manage custom fields',description: 'Create or update custom fields.' },
@@ -482,6 +496,7 @@ const PERMISSIONS = Object.freeze({
   'compliance.retention.run':   { category: 'compliance', sensitivity: 'critical',label: 'Run retention purge', description: 'Execute a retention-driven purge job.' },
   'compliance.legal.read':      { category: 'compliance', sensitivity: 'medium',  label: 'View legal sources',   description: 'View Armenian legal source registry.' },
   'compliance.legal.update':    { category: 'compliance', sensitivity: 'high',    label: 'Manage legal sources',description: 'Update Armenian legal source registry.' },
+  'compliance.legal.review':    { category: 'compliance', sensitivity: 'high',    label: 'Review legal source',  description: 'Add a professional review to a legal source (tax code: Accountant; data-protection/esign: Lawyer; default: Owner/Admin).' },
   'compliance.gdpr.read':       { category: 'compliance', sensitivity: 'medium',  label: 'View GDPR/PDPA tools', description: 'View GDPR / Armenian PDPA subject requests.' },
   'compliance.gdpr.fulfill':    { category: 'compliance', sensitivity: 'high',    label: 'Fulfill data subject request', description: 'Export or delete subject data.' },
   'compliance.breach.read':     { category: 'compliance', sensitivity: 'high',    label: 'View breach register', description: 'View data breach register.' },
@@ -490,6 +505,22 @@ const PERMISSIONS = Object.freeze({
   'compliance.audit.deliver':   { category: 'compliance', sensitivity: 'critical',label: 'Deliver audit packet',description: 'Submit or hand over an audit packet externally.' },
   'compliance.sox.read':        { category: 'compliance', sensitivity: 'medium',  label: 'View SOX controls',    description: 'View SOX financial controls and certifications.' },
   'compliance.sox.update':      { category: 'compliance', sensitivity: 'high',    label: 'Manage SOX controls',  description: 'Update SOX controls and certifications.' },
+
+  // ───────────── Pilot & Templates ─────────────
+  // Clinic-wellness pilot lifecycle: template install, owner briefs,
+  // operator workbenches, accountant reviews. The renewal/quote/closeout
+  // chain (launch-readiness, quote-handoff, hayhashvapah drafts,
+  // payment, closeout, and the renewal/next/following/... variants) is
+  // intentionally NOT cataloged here — those routes are deferred to a
+  // follow-up wave and still use the legacy requirePilot* helpers.
+  'pilot.template.read':        { category: 'pilot', sensitivity: 'low',     label: 'View pilot template',    description: 'View a clinic-wellness pilot template (readme, BOM summary, launch checklist).' },
+  'pilot.template.install':     { category: 'pilot', sensitivity: 'medium',  label: 'Install pilot template', description: 'Install a clinic-wellness pilot template into the org (creates the default workbench + brief queue).' },
+  'pilot.brief.read':           { category: 'pilot', sensitivity: 'low',     label: 'View pilot briefs',      description: 'View clinic-wellness pilot owner briefs (Owner daily brief packets).' },
+  'pilot.brief.create':         { category: 'pilot', sensitivity: 'low',     label: 'Create pilot brief',     description: 'Add a clinic-wellness pilot owner brief (Owner-only by design).' },
+  'pilot.workbench.read':       { category: 'pilot', sensitivity: 'low',     label: 'View pilot workbench',   description: 'View clinic-wellness pilot operator workbench (Operator daily queue).' },
+  'pilot.workbench.create':     { category: 'pilot', sensitivity: 'low',     label: 'Create pilot workbench', description: 'Add a clinic-wellness pilot operator workbench entry.' },
+  'pilot.review.read':          { category: 'pilot', sensitivity: 'low',     label: 'View pilot reviews',     description: 'View clinic-wellness pilot accountant reviews (Accountant close packet).' },
+  'pilot.review.create':        { category: 'pilot', sensitivity: 'low',     label: 'Create pilot review',    description: 'Add a clinic-wellness pilot accountant review entry.' },
 });
 
 // Index by category for UI rendering.

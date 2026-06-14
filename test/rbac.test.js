@@ -286,6 +286,80 @@ describe('New permission keys — tenant management (system.tenant.*)', () => {
   });
 });
 
+describe('New permission keys — pilots (pilot.*)', () => {
+  // Wave 3 phase 1 catalog coverage for the four pilot entity types that
+  // migrate-catalog-inventory owns: templates, owner-briefs, operator-
+  // workbenches, accountant-reviews. The downstream launch/quote/
+  // hayhashvapah/closeout/renewal chain is intentionally NOT covered
+  // here and is deferred to a follow-up wave.
+  const newKeys = [
+    'pilot.template.read',
+    'pilot.template.install',
+    'pilot.brief.read',
+    'pilot.brief.create',
+    'pilot.workbench.read',
+    'pilot.workbench.create',
+    'pilot.review.read',
+    'pilot.review.create',
+  ];
+  for (const k of newKeys) {
+    test(`has ${k} with valid metadata`, () => {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+      const def = getDefinition(k);
+      assert.ok(def, `no definition for ${k}`);
+      assert.equal(def.category, 'pilot', `${k} should be in pilot category`);
+      assert.ok(rbac.SENSITIVITY[def.sensitivity], `${k} bad sensitivity: ${def.sensitivity}`);
+      assert.ok(def.label && def.label.length > 0, `${k} missing label`);
+      assert.ok(def.description && def.description.length > 0, `${k} missing description`);
+    });
+  }
+
+  test('pilot.template.install is medium (mutation that provisions org state)', () => {
+    assert.equal(getDefinition('pilot.template.install').sensitivity, 'medium');
+  });
+
+  test('all four pilot entity types expose read + a write key', () => {
+    // Sanity: each entity (template, brief, workbench, review) has a
+    // read key and a write key. Templates use `install` (not `create`)
+    // because they ship pre-built; the rest use `create`. Update/delete
+    // for these entities is out of scope for wave 3 phase 1.
+    const readKeys = ['pilot.template.read', 'pilot.brief.read', 'pilot.workbench.read', 'pilot.review.read'];
+    const writeKeys = ['pilot.template.install', 'pilot.brief.create', 'pilot.workbench.create', 'pilot.review.create'];
+    for (const k of [...readKeys, ...writeKeys]) {
+      assert.ok(isValidKey(k), `missing key: ${k}`);
+    }
+  });
+});
+
+describe('New permission keys — FLS rules for catalog/inventory/purchase', () => {
+  // Wave 3 phase 1 FLS coverage for sensitive pricing/amount fields that
+  // catalog/inventory/purchase routes return. Each rule maps a dotted
+  // path to a minPermission that gates visibility.
+  const { FLS_RULES } = rbac;
+  const newRules = [
+    { path: 'inv.product.cost_price',    minPermission: 'inv.stock.receive' },
+    { path: 'inv.product.margin',        minPermission: 'inv.stock.receive' },
+    { path: 'inv.stock.unit_cost',       minPermission: 'inv.stock.receive' },
+    { path: 'inv.stock.total_value',     minPermission: 'inv.stock.receive' },
+    { path: 'purchase.vendor.pricing',   minPermission: 'purchase.pricelist.read' },
+    { path: 'purchase.vendor.unit_cost', minPermission: 'purchase.pricelist.read' },
+    { path: 'purchase.po.amount',        minPermission: 'purchase.po.create' },
+    { path: 'purchase.po.total',         minPermission: 'purchase.po.create' },
+    { path: 'purchase.po.unit_cost',     minPermission: 'purchase.po.create' },
+  ];
+  for (const rule of newRules) {
+    test(`FLS rule ${rule.path} requires ${rule.minPermission}`, () => {
+      const r = FLS_RULES[rule.path];
+      assert.ok(r, `missing FLS rule: ${rule.path}`);
+      assert.equal(r.minPermission, rule.minPermission, `${rule.path} should require ${rule.minPermission}`);
+      assert.ok(r.label && r.label.length > 0, `${rule.path} missing label`);
+      // The minPermission must itself be a valid catalog key, otherwise
+      // redactFields silently no-ops.
+      assert.ok(isValidKey(rule.minPermission), `${rule.path} → ${rule.minPermission} not in PERMISSIONS`);
+    });
+  }
+});
+
 // ─────────────── New permission sets ───────────────
 
 describe('New permission sets', () => {
@@ -301,6 +375,7 @@ describe('New permission sets', () => {
     'AIGovernance',
     'TenantAdmin',
     'TenantSupport',
+    'PilotOperator',
   ];
   for (const id of newSetIds) {
     test(`has permission set ${id}`, () => {
