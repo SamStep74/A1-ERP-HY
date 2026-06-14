@@ -448,8 +448,13 @@ function registerApi(app, db, options = {}) {
     return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
-  app.get("/api/catalog/categories", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/catalog/categories", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     return {
@@ -460,30 +465,50 @@ function registerApi(app, db, options = {}) {
     };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
-  app.get("/api/catalog/price-lists", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/catalog/price-lists", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     return { priceLists: getCatalogPriceLists(db, user.org_id) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
-  app.get("/api/catalog/pricing/resolve", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/catalog/pricing/resolve", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const query = normalizeCatalogPriceResolveQuery(request.query || {});
     return { pricing: resolveCatalogPricing(db, user.org_id, query) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
-  app.get("/api/catalog/margin-rules", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/catalog/margin-rules", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     return { marginRules: getCatalogMarginRules(db, user.org_id) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
-  app.get("/api/catalog/items", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/catalog/items", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const filters = normalizeCatalogItemQuery(request.query || {});
@@ -496,8 +521,13 @@ function registerApi(app, db, options = {}) {
     };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Accountant, Service Manager
-  app.get("/api/catalog/items/:id", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/catalog/items/:id", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
@@ -506,16 +536,26 @@ function registerApi(app, db, options = {}) {
     return { item };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson
-  app.post("/api/catalog/items", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.post("/api/catalog/items", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.create")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
     const item = createCatalogItem(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, item };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson
-  app.patch("/api/catalog/items/:id", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.patch("/api/catalog/items/:id", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.product.update")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
     const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
@@ -644,31 +684,51 @@ function registerApi(app, db, options = {}) {
     return { ok: true, line: deleteSalesOrderLine(db, user, orderId, lineId) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
-  app.get("/api/inventory/locations", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/inventory/locations", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     return { locations: getStockLocations(db, user.org_id) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
-  app.get("/api/inventory/stock", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/inventory/stock", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     const filters = normalizeInventoryQuery(request.query || {});
     return { stock: getStockQuants(db, user.org_id, filters), locations: getStockLocations(db, user.org_id) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
-  app.get("/api/inventory/moves", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/inventory/moves", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     const filters = normalizeInventoryQuery(request.query || {});
     return { moves: getStockMoves(db, user.org_id, filters) };
   });
 
-  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
-  app.post("/api/inventory/moves", async request => {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.post("/api/inventory/moves", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.receive")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
