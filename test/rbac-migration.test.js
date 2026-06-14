@@ -378,3 +378,102 @@ test('all three documented high-sensitivity routes are registered and reject una
     await app.close();
   }
 });
+
+// ───────── Linter behavior: the lint script catches violations ─────────
+//
+// These tests execute the linter in a child process and assert that
+// synthetic files in a temp directory produce the expected findings.
+// The lint is the migration's "tripwire" — these tests are the proof
+// that the tripwire fires.
+
+const { spawnSync } = require('node:child_process');
+const os = require('node:os');
+
+function runLintWithSyntheticFiles(extraFiles, opts = {}) {
+  // Create a temp dir, write a tiny catalog shim + the synthetic files,
+  // point --roots at it, and run the lint.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-rbac-'));
+  // We point --roots at the temp dir; the lint walks recursively, finds
+  // our files, and reports findings. We DO NOT need a full catalog —
+  // the lint only loads PERMISSIONS/FLS_RULES for known-key checks.
+  for (const [rel, content] of Object.entries(extraFiles)) {
+    const full = path.join(tmp, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  }
+  try {
+    const lintPath = path.resolve(__dirname, '../scripts/lint-rbac.js');
+    const args = [lintPath, `--roots=${tmp}`];
+    if (opts.noFail) args.push('--no-fail');
+    const res = spawnSync(process.execPath, args, {
+      encoding: 'utf8',
+    });
+    return { status: res.status, stdout: res.stdout, stderr: res.stderr };
+  } finally {
+    // Best-effort cleanup. We do not fail tests on rm errors.
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+  }
+}
+
+test('linter: catches a direct role check in a new file', () => {
+  const { status, stdout } = runLintWithSyntheticFiles({
+    'bad.js': "if (req.user.role === 'Owner') { return true; }\n",
+  });
+  assert.notStrictEqual(status, 0, 'linter must exit non-zero on direct role check');
+  assert.match(stdout, /Direct role check detected/);
+  assert.match(stdout, /bad\.js/);
+});
+
+test('linter: catches ["X","Y"].includes(user.role) in a new file', () => {
+  const { status, stdout } = runLintWithSyntheticFiles({
+    'multi.js': "if (!['Owner', 'Admin'].includes(user.role)) throw new Error('nope');\n",
+  });
+  assert.notStrictEqual(status, 0, 'linter must exit non-zero on role-list check');
+  assert.match(stdout, /Direct role check detected/);
+});
+
+test('linter: catches an unknown permission key in requirePerm', () => {
+  const { status, stdout } = runLintWithSyntheticFiles({
+    'unknown-key.js': "app.get('/x', { preHandler: requirePerm('totally.made.up.key') }, () => {});\n",
+  });
+  assert.notStrictEqual(status, 0, 'linter must exit non-zero on unknown permission key');
+  assert.match(stdout, /totally\.made\.up\.key/);
+  assert.match(stdout, /is not in the PERMISSIONS catalog/);
+});
+
+test('linter: passes a file that uses only requirePerm with valid keys', () => {
+  const { status, stdout } = runLintWithSyntheticFiles({
+    'clean.js': [
+      "const { requirePerm, redactFields } = require('./rbac');",
+      "app.post('/x', { preHandler: requirePerm('crm.deal.approve') }, async (req) => {",
+      "  return redactFields(req.user, { dealId: 'd1' }, ['crm.account.tax_id']);",
+      "});",
+    ].join('\n'),
+  }, { noFail: true });
+  // The lint reports a clean run as exit 0 and "✓ clean" in the output.
+  assert.strictEqual(status, 0, `linter should pass clean files, got status ${status}: ${stdout}`);
+  assert.match(stdout, /clean — no direct role checks/);
+});
+
+test('linter: warns when a sensitive key appears in a return literal without a redactFields call', () => {
+  const { status, stdout } = runLintWithSyntheticFiles({
+    'leak.js': [
+      "app.get('/x', () => ({",
+      "  account_number: 'AM12 3456 7890 1234 5678 9012',",
+      "}));",
+    ].join('\n'),
+  }, { noFail: true });
+  // WARN-only finding: lint exits 0 (per the lint contract) but logs the warning.
+  assert.strictEqual(status, 0, 'linter exits 0 on warn-only findings');
+  assert.match(stdout, /Sensitive key 'account_number'/);
+  assert.match(stdout, /finance\.bank\.account_number/);
+});
+
+test('linter: respects the // rbac-lint: allow-role-check marker on a line', () => {
+  const { status, stdout } = runLintWithSyntheticFiles({
+    'allowed.js': "if (req.user.role === 'Owner') { return true; } // rbac-lint: allow-role-check — system shortcut\n",
+  }, { noFail: true });
+  // The line-level marker exempts the line. Lint reports clean.
+  assert.strictEqual(status, 0, `linter should pass with allow marker, got status ${status}: ${stdout}`);
+  assert.match(stdout, /clean — no direct role checks/);
+});

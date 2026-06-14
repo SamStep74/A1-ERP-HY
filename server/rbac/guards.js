@@ -55,7 +55,7 @@ function resolveEffectivePermissions(user) {
   // 4. Owner is the super-user and implicitly holds every permission. This
   //    is the ONLY implicit-all shortcut. Admin gets its powers explicitly
   //    through its role matrix (e.g. SystemAdmin PS).
-  if (user.role === 'Owner') { // rbac-lint: allow-role-check — system shortcut
+  if (user.role === 'Owner') { // rbac-lint: allow-role-check — Owner shortcut
     for (const k of Object.keys(PERMISSIONS)) keys.add(k);
   }
   user._effectivePermissions = keys;
