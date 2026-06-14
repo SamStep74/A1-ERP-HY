@@ -259,3 +259,68 @@ test('snapshot file is the lock-in version (version: 1)', () => {
   assert.ok(Array.isArray(snapshot.findings), 'snapshot.findings must be an array');
   assert.equal(snapshot.capturedAt, 'LOCKED', 'snapshot.capturedAt must remain "LOCKED" so the file is reproducible across runs');
 });
+
+// ───────── 6. annotate-allow-list-sites: per-site lock-in ─────────
+//
+// Each of the 23 NO LEGACY ALLOW-LIST sites that Wave 5's
+// `annotate-allow-list-sites` worker resolved gets a dedicated assertion:
+// the site must no longer be reported as 'no-legacy' by the audit, and
+// the `expectedRoles` must match the inline `// rbac-audit: expected-roles`
+// annotation that was added either inside the helper body (catalog /
+// inventory / purchase helpers) or above the preHandler line (mfa).
+// The annotation is the single source of truth — if a future PR changes
+// the helper body without updating the annotation, these tests fail
+// before the snapshot does, giving the author a targeted diff.
+
+const ANNOTATED_SITES = [
+  // mfa routes — annotated above the preHandler line in server/app.js
+  { method: 'POST', path: '/api/security/mfa/enroll',           permKey: 'security.mfa.configure', expectedRoles: ['Owner', 'Admin'] },
+  { method: 'POST', path: '/api/security/mfa/verify-enrollment',permKey: 'security.mfa.configure', expectedRoles: ['Owner', 'Admin'] },
+  // catalog read — all 6 routes share the same requireCatalogReader helper
+  { method: 'GET',  path: '/api/catalog/categories',           permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
+  { method: 'GET',  path: '/api/catalog/price-lists',          permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
+  { method: 'GET',  path: '/api/catalog/pricing/resolve',      permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
+  { method: 'GET',  path: '/api/catalog/margin-rules',         permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
+  { method: 'GET',  path: '/api/catalog/items',                permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
+  { method: 'GET',  path: '/api/catalog/items/:id',            permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
+  // catalog write — 2 routes share requireCatalogWriter
+  { method: 'POST', path: '/api/catalog/items',                permKey: 'inv.product.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson'] },
+  { method: 'PATCH',path: '/api/catalog/items/:id',            permKey: 'inv.product.update',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson'] },
+  // inventory read — 3 routes share requireInventoryReader
+  { method: 'GET',  path: '/api/inventory/locations',          permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/inventory/stock',              permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/inventory/moves',              permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  // inventory write — 1 route uses requireInventoryWriter
+  { method: 'POST', path: '/api/inventory/moves',              permKey: 'inv.stock.receive',      expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  // purchase read — 3 routes share requirePurchaseReader
+  { method: 'GET',  path: '/api/purchase/orders',              permKey: 'purchase.po.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/purchase/vendors',             permKey: 'purchase.vendor.read',   expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/purchase/analytics',           permKey: 'purchase.analytics.read',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  // purchase write — 4 routes share requirePurchaseWriter
+  { method: 'POST', path: '/api/purchase/vendors',             permKey: 'purchase.vendor.create', expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'POST', path: '/api/purchase/orders',              permKey: 'purchase.po.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'POST', path: '/api/purchase/orders/:id/confirm',  permKey: 'purchase.po.update',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'POST', path: '/api/purchase/orders/:id/receive',  permKey: 'purchase.receipt.create',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'POST', path: '/api/purchase/orders/:id/return',   permKey: 'purchase.return.create', expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  // finance bill — 1 route uses requireFinanceOperator
+  { method: 'POST', path: '/api/purchase/orders/:id/bill',     permKey: 'finance.bill.create',    expectedRoles: ['Owner', 'Admin', 'Accountant'] },
+];
+
+for (const site of ANNOTATED_SITES) {
+  test(`annotate: ${site.method} ${site.path}`, () => {
+    const result = audit();
+    const source = `${site.method} ${site.path}`;
+    const finding = result.findings.find((f) => f.source === source && f.permKey === site.permKey);
+    assert.ok(finding, `${source} (${site.permKey}) is not in the audit output — the worker must have missed it`);
+    assert.notEqual(
+      finding.kind,
+      'no-legacy',
+      `${source} (${site.permKey}) is still reported as no-legacy; the audit cannot extract the expected-roles annotation`
+    );
+    assert.deepEqual(
+      finding.expectedRoles,
+      site.expectedRoles,
+      `${source} (${site.permKey}) expectedRoles drift from the inline annotation`
+    );
+  });
+}
