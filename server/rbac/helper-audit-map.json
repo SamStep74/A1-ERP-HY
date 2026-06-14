@@ -207,14 +207,14 @@
         { "method": "POST", "path": "/api/purchase/orders/:id/receive",                         "permKey": "purchase.receipt.create","legacyAllowList": ["Owner", "Admin", "Operator", "Accountant"] },
         { "method": "POST", "path": "/api/purchase/orders/:id/return",                          "permKey": "purchase.return.create", "legacyAllowList": ["Owner", "Admin", "Operator", "Accountant"] },
         { "method": "POST", "path": "/api/purchase/orders/:id/bill",                            "permKey": "finance.bill.create",    "legacyAllowList": ["Owner", "Admin", "Accountant"] },
-        { "method": "GET",  "path": "/api/pilots/templates/clinic-wellness",                    "permKey": "pilot.template.read" },
-        { "method": "POST", "path": "/api/pilots/templates/clinic-wellness/install",            "permKey": "pilot.template.install" },
-        { "method": "GET",  "path": "/api/pilots/clinic-wellness/owner-briefs",                 "permKey": "pilot.brief.read" },
-        { "method": "POST", "path": "/api/pilots/clinic-wellness/owner-briefs",                 "permKey": "pilot.brief.create" },
-        { "method": "GET",  "path": "/api/pilots/clinic-wellness/operator-workbenches",         "permKey": "pilot.workbench.read" },
-        { "method": "POST", "path": "/api/pilots/clinic-wellness/operator-workbenches",         "permKey": "pilot.workbench.create" },
-        { "method": "GET",  "path": "/api/pilots/clinic-wellness/accountant-reviews",           "permKey": "pilot.review.read" },
-        { "method": "POST", "path": "/api/pilots/clinic-wellness/accountant-reviews",           "permKey": "pilot.review.create" }
+        { "method": "GET",  "path": "/api/pilots/templates/clinic-wellness",                    "permKey": "pilot.template.read",       "legacyAllowList": ["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotTemplateReader body." },
+        { "method": "POST", "path": "/api/pilots/templates/clinic-wellness/install",            "permKey": "pilot.template.install",   "legacyAllowList": ["Owner", "Admin", "Salesperson"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotTemplateWriter body." },
+        { "method": "GET",  "path": "/api/pilots/clinic-wellness/owner-briefs",                 "permKey": "pilot.brief.read",         "legacyAllowList": ["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotTemplateReader body (route delegates to the same helper as the template-read endpoint)." },
+        { "method": "POST", "path": "/api/pilots/clinic-wellness/owner-briefs",                 "permKey": "pilot.brief.create",       "legacyAllowList": ["Owner", "Admin", "Salesperson"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotTemplateWriter body." },
+        { "method": "GET",  "path": "/api/pilots/clinic-wellness/operator-workbenches",         "permKey": "pilot.workbench.read",     "legacyAllowList": ["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant", "Auditor"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotOperatorWorkbenchReader body." },
+        { "method": "POST", "path": "/api/pilots/clinic-wellness/operator-workbenches",         "permKey": "pilot.workbench.create",   "legacyAllowList": ["Owner", "Admin", "Operator", "Salesperson", "Service Manager"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotOperatorWorkbenchWriter body." },
+        { "method": "GET",  "path": "/api/pilots/clinic-wellness/accountant-reviews",           "permKey": "pilot.review.read",        "legacyAllowList": ["Owner", "Admin", "Accountant", "Auditor"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotAccountantReviewReader body." },
+        { "method": "POST", "path": "/api/pilots/clinic-wellness/accountant-reviews",           "permKey": "pilot.review.create",      "legacyAllowList": ["Owner", "Admin", "Accountant"], "wave8Note": "Wave 8 — annotated NO LEGACY site. Legacy allow-list = requirePilotAccountantReviewWriter body." }
       ]
     }
   }

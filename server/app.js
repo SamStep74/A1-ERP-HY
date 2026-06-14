@@ -829,12 +829,14 @@ function registerApi(app, db, options = {}) {
     return billPurchaseOrder(db, request.user, orderId, request.body === undefined ? {} : request.body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Salesperson, Operator, Accountant, Auditor
   app.get("/api/pilots/templates/clinic-wellness", async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
     return getClinicWellnessPilotTemplateResponse(db, user.org_id);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Salesperson
   app.post("/api/pilots/templates/clinic-wellness/install", async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
@@ -842,36 +844,42 @@ function registerApi(app, db, options = {}) {
     return installClinicWellnessPilotTemplate(db, user, body);
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Salesperson, Operator, Accountant, Auditor
   app.get("/api/pilots/clinic-wellness/owner-briefs", async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
     return { briefs: getPilotOwnerBriefs(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Salesperson
   app.post("/api/pilots/clinic-wellness/owner-briefs", async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
     return createClinicWellnessOwnerBrief(db, user, request.body || {});
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager, Accountant, Auditor
   app.get("/api/pilots/clinic-wellness/operator-workbenches", async request => {
     const user = await app.auth(request);
     requirePilotOperatorWorkbenchReader(user);
     return { workbenches: getPilotOperatorWorkbenches(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Operator, Salesperson, Service Manager
   app.post("/api/pilots/clinic-wellness/operator-workbenches", async request => {
     const user = await app.auth(request);
     requirePilotOperatorWorkbenchWriter(user);
     return createClinicWellnessOperatorWorkbench(db, user, request.body || {});
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Accountant, Auditor
   app.get("/api/pilots/clinic-wellness/accountant-reviews", async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewReader(user);
     return { reviews: getPilotAccountantReviews(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
+  // rbac-audit: expected-roles Owner, Admin, Accountant
   app.post("/api/pilots/clinic-wellness/accountant-reviews", async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewWriter(user);
@@ -8291,6 +8299,7 @@ function requireAnalyticsSnapshotWriter(user) {
 }
 
 function requireAnalyticsReportReader(user) {
+  // rbac-audit: expected-roles Owner, Admin, Auditor, Accountant
   if (visibleAnalyticsReportTypes(user).length === 0) {
     const err = new Error("Analytics report reader role required");
     err.statusCode = 403;
