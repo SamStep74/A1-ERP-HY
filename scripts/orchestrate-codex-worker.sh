@@ -131,10 +131,62 @@ esac
 
 # Update status + handoff based on exit
 if [[ $RC -eq 0 ]]; then
-  # Preserve the original "task started at <ts>" by reading the file we wrote
-  # at the start of this run (the only file we wrote). The current
-  # $STATUS_FILE may have been touched by the worker, so re-read the
-  # original timestamp from a separate variable.
+  # Silent-success guard: the agent returned 0 but may have produced no
+  # real work. Two canaries:
+  #   1. The handoff file is still the seed placeholder (the worker
+  #      never wrote a real handoff).
+  #   2. The worktree branch has 0 new commits ahead of origin/main
+  #      (the worker did not commit).
+  # If either canary fires, treat the run as failed.
+  HANDOFF_SEED="# Handoff — $WORKER_NAME"
+  HANDOFF_STILL_SEED=0
+  if [[ -f "$HANDOFF_FILE" ]] && head -n 1 "$HANDOFF_FILE" | grep -qF "Handoff — $WORKER_NAME (FAILED)"; then
+    : # already replaced by a previous failed run; not a silent success
+  elif head -n 1 "$HANDOFF_FILE" | grep -qF "$HANDOFF_SEED" && grep -qF "filled in by the worker on completion" "$HANDOFF_FILE"; then
+    HANDOFF_STILL_SEED=1
+  fi
+  WORKTREE_COMMITS=0
+  if command -v git >/dev/null 2>&1 && [[ -d "$WORKTREE_PATH/.git" || -f "$WORKTREE_PATH/.git" ]]; then
+    BASE="$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref @{u} 2>/dev/null || echo "main")"
+    WORKTREE_COMMITS="$(git -C "$WORKTREE_PATH" rev-list --count "$BASE..HEAD" 2>/dev/null || echo 0)"
+  fi
+
+  if [[ $HANDOFF_STILL_SEED -eq 1 || $WORKTREE_COMMITS -eq 0 ]]; then
+    # Silent success — flip the status to FAILED and write a triage handoff.
+    {
+      echo "# Status — $WORKER_NAME"
+      echo
+      echo "- [x] task started at $STARTED_AT"
+      echo "- [!] task FAILED (silent success — agent exited 0 but produced no work) at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$STATUS_FILE"
+    {
+      echo "# Handoff — $WORKER_NAME (FAILED — silent success)"
+      echo
+      echo "Agent exited with code 0, but the silent-success canary fired:"
+      echo
+      if [[ $HANDOFF_STILL_SEED -eq 1 ]]; then
+        echo "- handoff file is still the seed placeholder (no real handoff written)"
+      fi
+      if [[ $WORKTREE_COMMITS -eq 0 ]]; then
+        echo "- worktree branch has 0 new commits ahead of $BASE (no commit landed)"
+      fi
+      echo
+      echo "## Last 80 lines of agent output"
+      echo
+      echo '```'
+      tail -n 80 "$LOG" 2>/dev/null || echo "(log not available)"
+      echo '```'
+    } > "$HANDOFF_FILE"
+    echo
+    echo "──────────────────────────────────────────────────────────"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] worker=$WORKER_NAME: SILENT SUCCESS → FAILED"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] (handoff_seed=$HANDOFF_STILL_SEED, worktree_commits=$WORKTREE_COMMITS)"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] pane will stay open for triage. Press Enter to close."
+    read -r _
+    exit 1
+  fi
+
+  # Real success: agent returned 0, wrote a handoff, committed work.
   STARTED_TS="$STARTED_AT"
   {
     echo "# Status — $WORKER_NAME"
@@ -144,10 +196,8 @@ if [[ $RC -eq 0 ]]; then
   } > "$STATUS_FILE"
   echo
   echo "──────────────────────────────────────────────────────────"
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] worker=$WORKER_NAME: SUCCESS"
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] worker=$WORKER_NAME: SUCCESS (commits=$WORKTREE_COMMITS)"
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] pane will stay open. Press Enter to close."
-  # Keep the pane alive so the operator can review the output.
-  # `read` blocks until the user presses Enter, then returns 0.
   read -r _
   exit 0
 else
