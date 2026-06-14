@@ -228,11 +228,12 @@ also not in the wave 3 scope (Phase 1 migration). A future wave can
 either update the test expectations to match the new catalog or fix
 the production code to match the test contract. Tracked for wave 4+.
 
-## Wave 3 — Phase 1 RBAC migration (in progress)
+## Wave 3 — Phase 1 RBAC migration (REVERTED)
 
 Three workers, each owning a non-overlapping route family in
-`server/app.js`, are migrating the 234 ad-hoc role checks to catalog-
-driven `requirePerm()` preHandlers:
+`server/app.js`, attempted to migrate the 234 ad-hoc role checks to
+catalog-driven `requirePerm()` preHandlers. The workers ran in `tmux`
+session `a1-erp-hy-wave3`:
 
 | Worker | Owns routes | Line range (approx) |
 |---|---|---|
@@ -240,7 +241,81 @@ driven `requirePerm()` preHandlers:
 | `migrate-catalog-inventory` | `/api/catalog/*`, `/api/inventory/*`, `/api/purchase/*`, `/api/pilots/*` | 418–600 (~50 routes) |
 | `migrate-finance-crm-hr` | `/api/finance/*`, `/api/crm/*`, `/api/hr/*`, `/api/payroll/*`, `/api/desk/*`, `/api/analytics/*`, `/api/legal/*`, `/api/admin/*` | rest (~200+ routes) |
 
-Goal: zero ad-hoc `user.role ===` checks in routes each worker owns;
-`scripts/lint-rbac.js` reports 0 errors; no regressions in the
-rbac-related test suites. Workers run in `tmux` session
-`a1-erp-hy-wave3`.
+**Result:** octopus-merged to main at `f2fd3c3`, lint clean, all 254
+rbac / migration / session / orchestrator tests pass. BUT a hidden
+**102-test regression** appeared in `test/api.test.js` (6 → 108
+failures). Reverted in commit `544a5a7` ("Revert merge: wave 3 …").
+
+### Root cause of the regression
+
+The migration workers rewrote the in-file helper bodies
+(`requireSessionAdmin`, `requireAuditExportReader`,
+`requireAuditExportWriter`, `requireProductionReadinessReader`,
+`requireIntegrationReader`, `requireIntegrationWriter`, the entire
+`requirePilot*` family, …) from narrow role allow-lists to single
+catalog permission lookups via
+`requirePermissionWithSensitivity(user, "x.y.z")`. The catalog grants
+those permission keys to **more roles** than the original allow-lists
+did. For example:
+
+| Helper | Original allow-list | New perm key | Roles holding the perm |
+|---|---|---|---|
+| `requireSessionAdmin` | `["Owner", "Admin"]` | `security.session.revoke` | Owner, Admin, **Auditor** (and any role with `AuditOperator` PS) |
+| `requireAuditExportWriter` | `["Owner", "Admin"]` | `security.audit.export` | Owner, Admin, Auditor |
+| `requireIntegrationWriter` | (was role-allow-list) | `system.integrations.update` | Owner, Admin, **Operator** (any role with `Operator` PS) |
+
+This is a textbook **fail-open** security regression introduced by an
+automated migration: the new check is "does the user hold this perm?"
+and the catalog answers yes for more roles than the legacy role allow-
+list did. Test 18 (auditor is 403 on `POST /api/admin/sessions/:id/
+revoke`) flipped to 200; test 20 (owner creates tamper-evident audit
+export), test 23 (integration connector), and 99 others broke with the
+same pattern.
+
+### What we kept from Wave 3
+
+The 3 worker commits still exist in the local git reflog and on the
+worktree-branches that were force-removed (`migrate-auth-security`,
+`migrate-catalog-inventory`, `migrate-finance-crm-hr`). The **catalog
+additions** they made — 14 new permission keys in
+`server/rbac/permissions.js`, 28 new role-permission-set grants in
+`server/rbac/matrix.js` and `server/rbac/roleMatrix.js`, and the 20
+new tests in `test/rbac-migration.test.js` — are also rolled back by
+the revert commit, but the source commits remain in git history and
+can be cherry-picked individually if a future wave needs them.
+
+### Wave 3 lessons (carried into Wave 4)
+
+1. **Never swap a role allow-list for a single permission key without
+   auditing the catalog grants.** The catalog's "any role with PS X
+   gets the perm" semantics is broader than the legacy
+   `if (role in [...])` lists.
+2. **TDD fails-open.** The pre-existing 6 `api.test.js` failures were
+   a canary that the workers did not read; in the future, fix the
+   pre-existing failures FIRST, so the next migration has a known-
+   good baseline to compare against.
+3. **Lint clean ≠ behavior clean.** `scripts/lint-rbac.js` correctly
+   reported 0 ad-hoc role checks; but it does not (yet) check
+   "permission grants vs allow-list equivalence" — a missing
+   invariant that the regression exploited.
+4. **Helper-body rewrites are higher risk than preHandler swaps.**
+   The 6 routes that became pure `preHandler: requirePerm(...)`
+   preHandlers were safe; the helpers that called
+   `requirePermissionWithSensitivity` inside the handler were the
+   fail-open path.
+
+## Wave 4 — catalog grant audit + narrow migration (planned)
+
+Three workers in `tmux` session `a1-erp-hy-wave4`:
+
+| Worker | Scope | Deliverable |
+|---|---|---|
+| `catalog-grant-audit` | Every permission key in `server/rbac/permissions.js` × every role in `server/rbac/roles.js` | A `docs/CATALOG_GRANT_AUDIT.md` (or a new test) that proves: for every legacy role allow-list site in `server/app.js`, the set of roles that hold the corresponding perm key is **a subset of** the legacy allow-list. The auditor's first output: a list of "broad grants" (perm held by more roles than any allow-list requires) that the migration workers must narrow before any re-attempt. |
+| `migrate-preHandlers-only` | The 6 routes that Wave 3 successfully converted to `preHandler: requirePerm(...)` | Re-apply only the preHandler swaps (not the helper-body rewrites) for the auth/security slice. Helper bodies stay as role allow-lists. Lint clean, no api.test.js regression. |
+| `fix-pre-existing-failures` | The 6 documented `api.test.js` failures (TAP #8, #23, #130, #168, #182, #199) | Fix the production code to match the test contract. Tests are the source of truth here — these 6 tests were written first as the API contract; the production code drifted. Wave 4 also adds a `pre-existing-failures.test.js` so the baseline is locked in CI. |
+
+**Goal of Wave 4:** test baseline locked at 227/233 (6 documented
+pre-existing → 233/233 once fixed), `scripts/lint-rbac.js` extended
+with a "broad grant" detector, and a narrow preHandler-only migration
+slice merged to main without breaking `api.test.js`. Wave 5 can then
+attempt the broader migration with the catalog grants already audited.
