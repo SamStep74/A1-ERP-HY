@@ -735,6 +735,66 @@ function registerApi(app, db, options = {}) {
     return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
   });
 
+  // ───────── Stock Reservations (Phase 1: pre-allocation against sales orders) ─────────
+  // A reservation is a *plan* — it records what stock the sales order needs.
+  // It does not move stock; that happens later via /api/inventory/moves.
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/inventory/reservations", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.read")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const filters = normalizeReservationListQuery(request.query || {});
+    return { reservations: listStockReservations(db, user.org_id, filters) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.post("/api/inventory/reservations", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.reserve")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const reservation = createStockReservation(db, user, request.body === undefined ? {} : request.body);
+    return { ok: true, reservation };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.post("/api/inventory/reservations/:id/release", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.reserve")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const reservationId = normalizeReservationPathId(request.params.id);
+    const reservation = releaseStockReservation(db, user, reservationId, request.body === undefined ? {} : request.body);
+    return { ok: true, reservation };
+  });
+
+  // ───────── Stock Shortages (Phase 1: informational records of unmet demand) ─────────
+  // A shortage is a side-effect of an insufficient reservation. The original
+  // demand (sales order) is still created — the shortage is for the
+  // replenishment workflow, not a rejection of the order.
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk
+  app.get("/api/inventory/shortages", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("inv.stock.read")
+    ]
+  }, async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const filters = normalizeShortageListQuery(request.query || {});
+    return { shortages: listStockShortages(db, user.org_id, filters) };
+  });
+
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
   app.get("/api/purchase/orders", {
     preHandler: [
@@ -49795,6 +49855,443 @@ function normalizeInventoryPathId(value) {
   return text;
 }
 
+// ───────── Stock Reservation helpers (Phase 1 Inventory) ─────────
+//
+// A reservation is a *promise* of stock against a downstream demand.
+// It does not move stock; the picker fulfills it later via
+// /api/inventory/moves. If the requested quantity is greater than the
+// available quantity, we still create the reservation (for the available
+// amount) and record a stock_shortages row for the unmet portion. The
+// sales order is never rejected on stock grounds.
+
+const RESERVATION_SOURCES = Object.freeze(["sales_order"]);
+
+function listStockReservations(db, orgId, filters = {}) {
+  const where = ["stock_reservations.org_id = ?"];
+  const params = [orgId];
+  if (filters.itemId) {
+    where.push("stock_reservations.item_id = ?");
+    params.push(filters.itemId);
+  }
+  if (filters.locationId) {
+    where.push("stock_reservations.location_id = ?");
+    params.push(filters.locationId);
+  }
+  if (filters.status) {
+    where.push("stock_reservations.status = ?");
+    params.push(filters.status);
+  }
+  return db.prepare(`
+    SELECT stock_reservations.*,
+      catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name,
+      stock_locations.code AS location_code, stock_locations.name AS location_name
+    FROM stock_reservations
+    JOIN catalog_items ON catalog_items.id = stock_reservations.item_id
+      AND catalog_items.org_id = stock_reservations.org_id
+    JOIN stock_locations ON stock_locations.id = stock_reservations.location_id
+      AND stock_locations.org_id = stock_reservations.org_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY stock_reservations.created_at DESC, stock_reservations.id DESC
+  `).all(...params).map(formatStockReservation);
+}
+
+function getStockReservation(db, orgId, reservationId) {
+  const row = db.prepare(`
+    SELECT stock_reservations.*,
+      catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name,
+      stock_locations.code AS location_code, stock_locations.name AS location_name
+    FROM stock_reservations
+    JOIN catalog_items ON catalog_items.id = stock_reservations.item_id
+      AND catalog_items.org_id = stock_reservations.org_id
+    JOIN stock_locations ON stock_locations.id = stock_reservations.location_id
+      AND stock_locations.org_id = stock_reservations.org_id
+    WHERE stock_reservations.org_id = ? AND stock_reservations.id = ?
+  `).get(orgId, reservationId);
+  return row ? formatStockReservation(row) : null;
+}
+
+function formatStockReservation(row) {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    itemSku: row.catalog_sku,
+    itemName: row.catalog_name,
+    locationId: row.location_id,
+    locationCode: row.location_code,
+    locationName: row.location_name,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    quantity: row.quantity,
+    status: row.status,
+    createdAt: row.created_at,
+    releasedAt: row.released_at,
+    releasedReason: row.released_reason,
+    createdByUserId: row.created_by_user_id,
+  };
+}
+
+function listStockShortages(db, orgId, filters = {}) {
+  const where = ["stock_shortages.org_id = ?"];
+  const params = [orgId];
+  if (filters.status) {
+    where.push("stock_shortages.status = ?");
+    params.push(filters.status);
+  }
+  return db.prepare(`
+    SELECT stock_shortages.*,
+      catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name,
+      stock_locations.code AS location_code, stock_locations.name AS location_name
+    FROM stock_shortages
+    JOIN catalog_items ON catalog_items.id = stock_shortages.item_id
+      AND catalog_items.org_id = stock_shortages.org_id
+    JOIN stock_locations ON stock_locations.id = stock_shortages.location_id
+      AND stock_locations.org_id = stock_shortages.org_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY stock_shortages.created_at DESC, stock_shortages.id DESC
+  `).all(...params).map(formatStockShortage);
+}
+
+function formatStockShortage(row) {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    itemSku: row.catalog_sku,
+    itemName: row.catalog_name,
+    locationId: row.location_id,
+    locationCode: row.location_code,
+    locationName: row.location_name,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    reservationId: row.reservation_id,
+    requestedQty: row.requested_qty,
+    availableQty: row.available_qty,
+    shortageQty: row.shortage_qty,
+    status: row.status,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at,
+  };
+}
+
+function normalizeReservationListQuery(query) {
+  return {
+    itemId: normalizeInventoryQueryText(query, "itemId", { idLike: true }),
+    locationId: normalizeInventoryQueryText(query, "locationId", { idLike: true }),
+    status: normalizeInventoryQueryText(query, "status", { maxLength: 32 })
+  };
+}
+
+function normalizeShortageListQuery(query) {
+  const status = normalizeInventoryQueryText(query, "status", { maxLength: 32 });
+  if (status && !["open", "resolved"].includes(status)) throwInvalidInventoryMetadata();
+  return { status };
+}
+
+function normalizeReservationPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidInventoryMetadata();
+  return text;
+}
+
+function normalizeReservationCreateBody(body) {
+  if (!isPlainObject(body)) throwInvalidInventoryMetadata();
+  return {
+    itemId: normalizeInventoryText(body, "itemId", { required: true, idLike: true }),
+    locationId: normalizeInventoryText(body, "locationId", { required: true, idLike: true }),
+    quantity: normalizeReservationQuantity(body),
+    sourceType: normalizeReservationSourceType(body),
+    sourceId: normalizeInventoryText(body, "sourceId", { required: true, idLike: true }),
+  };
+}
+
+function normalizeReservationReleaseBody(body) {
+  if (!isPlainObject(body)) throwInvalidInventoryMetadata();
+  const value = Object.prototype.hasOwnProperty.call(body, "reason") ? body.reason : "manual";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (!["fulfilled", "cancelled", "manual"].includes(text)) throwInvalidInventoryMetadata();
+  return { reason: text };
+}
+
+function normalizeReservationQuantity(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "quantity") ? body.quantity : undefined;
+  if (value === undefined || value === "") throwInvalidInventoryMetadata();
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidInventoryMetadata();
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+    const text = value.trim();
+    if (!/^\d+(\.\d+)?$/.test(text)) throwInvalidInventoryMetadata();
+    amount = Number(text);
+  } else {
+    throwInvalidInventoryMetadata();
+  }
+  if (!Number.isFinite(amount) || amount <= 0) throwInvalidInventoryMetadata();
+  return amount;
+}
+
+function normalizeReservationSourceType(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "sourceType") ? body.sourceType : undefined;
+  if (value === undefined || value === "") return "sales_order";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (!RESERVATION_SOURCES.includes(text)) throwInvalidInventoryMetadata();
+  return text;
+}
+
+/**
+ * Reserve available stock against a sales-order line. If requested <=
+ * available, the reservation is the full requested quantity. Otherwise
+ * we reserve `available` and record a stock_shortages row for the gap.
+ *
+ * Returns the reservation row (or null if available === 0 — nothing to
+ * reserve, but the shortage IS still recorded so replenishment is
+ * triggered). The shortage is intentionally always written for the unmet
+ * portion so downstream buyers see the demand.
+ */
+function reserveForSalesOrderLine(db, user, sourceId, itemId, locationId, requestedQty) {
+  if (!Number.isFinite(requestedQty) || requestedQty <= 0) {
+    return null;
+  }
+  const available = readAvailableStock(db, user.org_id, itemId, locationId);
+  const reservedQty = Math.min(available, requestedQty);
+  const now = new Date().toISOString();
+  if (reservedQty > 0) {
+    const reservationId = randomId("reservation");
+    db.prepare(`
+      INSERT INTO stock_reservations (
+        id, org_id, item_id, location_id, source_type, source_id,
+        quantity, status, created_by_user_id, created_at
+      ) VALUES (?, ?, ?, ?, 'sales_order', ?, ?, 'active', ?, ?)
+    `).run(
+      reservationId,
+      user.org_id,
+      itemId,
+      locationId,
+      sourceId,
+      reservedQty,
+      user.id || null,
+      now
+    );
+    if (reservedQty < requestedQty) {
+      insertStockShortage(db, user.org_id, {
+        itemId, locationId, sourceType: "sales_order", sourceId,
+        reservationId,
+        requestedQty,
+        availableQty: reservedQty,
+        shortageQty: requestedQty - reservedQty,
+      });
+    }
+    return reservationId;
+  }
+  // Zero available: still record the shortage so replenishment sees it.
+  insertStockShortage(db, user.org_id, {
+    itemId, locationId, sourceType: "sales_order", sourceId,
+    reservationId: null,
+    requestedQty,
+    availableQty: 0,
+    shortageQty: requestedQty,
+  });
+  return null;
+}
+
+function insertStockShortage(db, orgId, payload) {
+  const id = randomId("shortage");
+  db.prepare(`
+    INSERT INTO stock_shortages (
+      id, org_id, item_id, location_id, source_type, source_id,
+      reservation_id, requested_qty, available_qty, shortage_qty,
+      status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
+  `).run(
+    id,
+    orgId,
+    payload.itemId,
+    payload.locationId,
+    payload.sourceType,
+    payload.sourceId,
+    payload.reservationId,
+    payload.requestedQty,
+    payload.availableQty,
+    payload.shortageQty,
+    new Date().toISOString()
+  );
+  return id;
+}
+
+/**
+ * Read available stock for an item at a location. Available = on-hand
+ * minus already-active reservations. We use reserved_quantity when
+ * present (kept in sync by other workers); fall back to summing
+ * active reservations for backwards compatibility.
+ */
+function readAvailableStock(db, orgId, itemId, locationId) {
+  const row = db.prepare(`
+    SELECT
+      COALESCE(stock_quants.quantity, 0) AS on_hand,
+      COALESCE(stock_quants.reserved_quantity, 0) AS reserved_via_quant
+    FROM stock_quants
+    WHERE stock_quants.org_id = ? AND stock_quants.catalog_item_id = ? AND stock_quants.location_id = ?
+  `).get(orgId, itemId, locationId);
+  const onHand = row ? Number(row.on_hand) : 0;
+  const reservedViaQuant = row ? Number(row.reserved_via_quant) : 0;
+  const liveReserved = db.prepare(`
+    SELECT COALESCE(SUM(quantity), 0) AS live
+    FROM stock_reservations
+    WHERE org_id = ? AND item_id = ? AND location_id = ? AND status = 'active'
+  `).get(orgId, itemId, locationId).live;
+  const reserved = Math.max(reservedViaQuant, Number(liveReserved));
+  return Math.max(0, onHand - reserved);
+}
+
+function createStockReservation(db, user, body) {
+  const input = normalizeReservationCreateBody(body);
+  const item = db.prepare(`
+    SELECT id, status, track_stock FROM catalog_items
+    WHERE id = ? AND org_id = ?
+  `).get(input.itemId, user.org_id);
+  if (!item || item.status !== "active" || !item.track_stock) {
+    const err = new Error("Stock-tracked active catalog item required");
+    err.statusCode = 422;
+    throw err;
+  }
+  const location = db.prepare(`
+    SELECT id, status FROM stock_locations
+    WHERE id = ? AND org_id = ?
+  `).get(input.locationId, user.org_id);
+  if (!location || location.status !== "active") {
+    const err = new Error("Active stock location required");
+    err.statusCode = 422;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  const reservationId = randomId("reservation");
+  const available = readAvailableStock(db, user.org_id, input.itemId, input.locationId);
+  const reservedQty = Math.min(available, input.quantity);
+  if (reservedQty <= 0) {
+    // Nothing to reserve — but still record the shortage so replenishment
+    // sees the unmet demand. The caller gets the shortage id back via
+    // `getStockReservationById` below.
+    const shortageId = insertStockShortage(db, user.org_id, {
+      itemId: input.itemId,
+      locationId: input.locationId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      reservationId: null,
+      requestedQty: input.quantity,
+      availableQty: 0,
+      shortageQty: input.quantity,
+    });
+    audit(db, user.org_id, user.id, "inventory.reservation.shortage_only", {
+      reservationId: null,
+      shortageId,
+      itemId: input.itemId,
+      locationId: input.locationId,
+      requestedQty: input.quantity,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+    });
+    // Throw a 422 so the caller knows nothing was reserved. The shortage
+    // is observable via GET /api/inventory/shortages.
+    const err = new Error("No available stock to reserve; shortage recorded");
+    err.statusCode = 422;
+    err.code = "stock_shortage";
+    err.shortageId = shortageId;
+    throw err;
+  }
+  db.prepare(`
+    INSERT INTO stock_reservations (
+      id, org_id, item_id, location_id, source_type, source_id,
+      quantity, status, created_by_user_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `).run(
+    reservationId,
+    user.org_id,
+    input.itemId,
+    input.locationId,
+    input.sourceType,
+    input.sourceId,
+    reservedQty,
+    user.id || null,
+    now
+  );
+  if (reservedQty < input.quantity) {
+    insertStockShortage(db, user.org_id, {
+      itemId: input.itemId,
+      locationId: input.locationId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      reservationId,
+      requestedQty: input.quantity,
+      availableQty: reservedQty,
+      shortageQty: input.quantity - reservedQty,
+    });
+  }
+  audit(db, user.org_id, user.id, "inventory.reservation.created", {
+    reservationId,
+    itemId: input.itemId,
+    locationId: input.locationId,
+    requestedQty: input.quantity,
+    reservedQty,
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+  });
+  return getStockReservation(db, user.org_id, reservationId);
+}
+
+function releaseStockReservation(db, user, reservationId, body) {
+  const { reason } = normalizeReservationReleaseBody(body);
+  const existing = getStockReservation(db, user.org_id, reservationId);
+  if (!existing) {
+    const err = new Error("Stock reservation not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.status !== "active") {
+    const err = new Error(`Stock reservation is already ${existing.status}; cannot release`);
+    err.statusCode = 409;
+    err.code = "stock_reservation_invalid_transition";
+    throw err;
+  }
+  if (reason === "fulfilled") {
+    // For 'fulfilled' the stock_move that consumed the stock must already
+    // exist. The reservation is a *plan*; it does not create a move. The
+    // picker is responsible for the move. We do not require a specific
+    // move id — the caller passes a reason and we trust the workflow —
+    // but the move table is the source of truth for what was actually
+    // taken out of stock.
+    const recentMove = db.prepare(`
+      SELECT id FROM stock_moves
+      WHERE org_id = ? AND catalog_item_id = ? AND source_location_id = ?
+        AND move_type IN ('delivery', 'outbound', 'transfer')
+        AND quantity >= ?
+        AND created_at >= datetime(?)
+      ORDER BY created_at DESC LIMIT 1
+    `).get(user.org_id, existing.itemId, existing.locationId, existing.quantity, existing.createdAt);
+    if (!recentMove) {
+      const err = new Error("Cannot release as 'fulfilled': no stock move has consumed this reservation");
+      err.statusCode = 409;
+      err.code = "stock_reservation_no_move";
+      throw err;
+    }
+  }
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE stock_reservations
+    SET status = ?, released_at = ?, released_reason = ?
+    WHERE org_id = ? AND id = ?
+  `).run(reason === "cancelled" ? "cancelled" : "released", now, reason, user.org_id, reservationId);
+  audit(db, user.org_id, user.id, "inventory.reservation.released", {
+    reservationId,
+    reason,
+    itemId: existing.itemId,
+    locationId: existing.locationId,
+  });
+  return getStockReservation(db, user.org_id, reservationId);
+}
+
 function throwStockLocationNotFound() {
   const err = new Error("Stock location not found");
   err.statusCode = 404;
@@ -60583,6 +61080,13 @@ function cancelSalesOrder(db, user, orderId) {
     SET fulfillment_status = 'cancelled'
     WHERE org_id = ? AND sales_order_id = ? AND fulfillment_status != 'cancelled'
   `).run(user.org_id, orderId);
+  // Phase 1 Inventory: release all active reservations tied to this order
+  // with reason 'cancelled' so the stock is no longer earmarked.
+  db.prepare(`
+    UPDATE stock_reservations
+    SET status = 'cancelled', released_at = ?, released_reason = 'cancelled'
+    WHERE org_id = ? AND source_type = 'sales_order' AND source_id = ? AND status = 'active'
+  `).run(now, user.org_id, orderId);
   audit(db, user.org_id, user.id, "sales.order.cancelled", { orderId });
   return getSalesOrder(db, user.org_id, orderId);
 }
@@ -60675,7 +61179,39 @@ function addSalesOrderLine(db, user, orderId, body) {
     now
   );
   recomputeSalesOrderTotals(db, user.org_id, orderId);
+  // Phase 1 Inventory: auto-reserve stock for the new line. If the
+  // quantity exceeds available stock, the reservation is partial and a
+  // stock_shortages row is written. We never reject the line — the
+  // shortage is informational, the order still stands.
+  if (input.catalogItemId) {
+    reserveForSalesOrderLineIfPossible(db, user, orderId, lineId, input.catalogItemId, input.quantity);
+  }
   return getSalesOrderLine(db, user.org_id, orderId, lineId);
+}
+
+/**
+ * Look up the default internal stock location for the org (main warehouse)
+ * and create a reservation for the line. If the item is not stock-tracked
+ * or the location can't be found, the reservation is skipped silently.
+ */
+function reserveForSalesOrderLineIfPossible(db, user, orderId, lineId, catalogItemId, requestedQty) {
+  const item = db.prepare(`
+    SELECT id, track_stock FROM catalog_items
+    WHERE id = ? AND org_id = ?
+  `).get(catalogItemId, user.org_id);
+  if (!item || !item.track_stock) return null;
+  const location = db.prepare(`
+    SELECT id FROM stock_locations
+    WHERE org_id = ? AND status = 'active' AND location_type = 'internal'
+    ORDER BY
+      CASE WHEN code = 'WH/STOCK' THEN 0
+           WHEN code = 'WH/MAIN'  THEN 1
+           ELSE 2 END,
+      created_at ASC
+    LIMIT 1
+  `).get(user.org_id);
+  if (!location) return null;
+  return reserveForSalesOrderLine(db, user, orderId, catalogItemId, location.id, requestedQty);
 }
 
 function updateSalesOrderLine(db, user, orderId, lineId, body) {

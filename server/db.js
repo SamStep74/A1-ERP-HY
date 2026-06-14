@@ -689,6 +689,60 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_stock_moves_locations
       ON stock_moves(org_id, source_location_id, destination_location_id, created_at DESC);
 
+    -- Stock reservations: pre-allocation of stock against a downstream
+    -- demand source (e.g. sales_order). Created at sales-order time, before
+    -- any stock move (picking) happens. A reservation is a *plan* — it
+    -- records what stock is needed, it does not block order creation.
+    --
+    -- source_type is constrained to 'sales_order' for now. The column is
+    -- explicit (not a free-form string) so future source types
+    -- (e.g. 'transfer', 'production_order') can be added without a schema
+    -- migration on the source_id side.
+    CREATE TABLE IF NOT EXISTS stock_reservations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      location_id TEXT NOT NULL REFERENCES stock_locations(id) ON DELETE RESTRICT,
+      source_type TEXT NOT NULL CHECK (source_type IN ('sales_order')),
+      source_id TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK (quantity > 0),
+      status TEXT NOT NULL CHECK (status IN ('active', 'released', 'cancelled')) DEFAULT 'active',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      released_at TEXT,
+      released_reason TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stock_reservations_item
+      ON stock_reservations(org_id, item_id, status);
+    CREATE INDEX IF NOT EXISTS idx_stock_reservations_source
+      ON stock_reservations(org_id, source_type, source_id, status);
+
+    -- Stock shortages: side-effect records emitted when a reservation
+    -- cannot be fully satisfied. The shortage is informational — it
+    -- carries the unmet quantity for downstream replenishment, not a
+    -- rejection of the original demand (the order is still created).
+    CREATE TABLE IF NOT EXISTS stock_shortages (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      location_id TEXT NOT NULL REFERENCES stock_locations(id) ON DELETE RESTRICT,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      reservation_id TEXT REFERENCES stock_reservations(id) ON DELETE SET NULL,
+      requested_qty REAL NOT NULL CHECK (requested_qty > 0),
+      available_qty REAL NOT NULL CHECK (available_qty >= 0),
+      shortage_qty REAL NOT NULL CHECK (shortage_qty >= 0),
+      status TEXT NOT NULL CHECK (status IN ('open', 'resolved')) DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stock_shortages_item
+      ON stock_shortages(org_id, item_id, status);
+    CREATE INDEX IF NOT EXISTS idx_stock_shortages_source
+      ON stock_shortages(org_id, source_type, source_id, status);
+
     CREATE TABLE IF NOT EXISTS purchase_vendors (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
