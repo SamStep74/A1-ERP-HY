@@ -3,8 +3,8 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 28,
-    "broad": 11,
+    "pass": 37,
+    "broad": 2,
     "no-legacy": 9,
     "unknown-key": 0,
     "total": 48
@@ -752,7 +752,7 @@
       "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "GET /api/purchase/orders",
       "permKey": "purchase.po.read",
       "expectedRoles": [
@@ -766,23 +766,13 @@
         "Accountant",
         "Admin",
         "Auditor",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser",
-        "VendorPortal"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser",
-        "VendorPortal"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "GET /api/purchase/vendors",
       "permKey": "purchase.vendor.read",
       "expectedRoles": [
@@ -796,21 +786,13 @@
         "Accountant",
         "Admin",
         "Auditor",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "GET /api/purchase/analytics",
       "permKey": "purchase.analytics.read",
       "expectedRoles": [
@@ -824,21 +806,13 @@
         "Accountant",
         "Admin",
         "Auditor",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "POST /api/purchase/vendors",
       "permKey": "purchase.vendor.create",
       "expectedRoles": [
@@ -850,21 +824,13 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "POST /api/purchase/orders",
       "permKey": "purchase.po.create",
       "expectedRoles": [
@@ -876,21 +842,13 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "POST /api/purchase/orders/:id/confirm",
       "permKey": "purchase.po.update",
       "expectedRoles": [
@@ -902,21 +860,13 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "POST /api/purchase/orders/:id/receive",
       "permKey": "purchase.receipt.create",
       "expectedRoles": [
@@ -928,21 +878,13 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "POST /api/purchase/orders/:id/return",
       "permKey": "purchase.return.create",
       "expectedRoles": [
@@ -954,21 +896,13 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "FinanceLead",
-        "InventoryLead",
-        "Owner",
-        "PurchaseLead",
-        "Purchaser"
+        "Operator",
+        "Owner"
       ],
-      "extraRoles": [
-        "FinanceLead",
-        "InventoryLead",
-        "PurchaseLead",
-        "Purchaser"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "POST /api/purchase/orders/:id/bill",
       "permKey": "finance.bill.create",
       "expectedRoles": [
@@ -979,18 +913,9 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "Bookkeeper",
-        "FinanceLead",
-        "Owner",
-        "PayrollClerk",
-        "PurchaseLead"
+        "Owner"
       ],
-      "extraRoles": [
-        "Bookkeeper",
-        "FinanceLead",
-        "PayrollClerk",
-        "PurchaseLead"
-      ]
+      "extraRoles": []
     },
     {
       "kind": "no-legacy",
