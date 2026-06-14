@@ -479,7 +479,37 @@ Pushed `6903c90..d5a3f28` to `origin/main`.
 2. **9 NO LEGACY sites** (1 helper + 8 pilot routes): `requireAnalyticsReportReader` + 4 read/4 write `/api/pilots/clinic-wellness/*` routes need `// rbac-audit: expected-roles` annotations.
 3. **The Worker B work (inventory adjust perm keys)** is small enough to fold into Wave 8.
 
-## Wave 8 — PLANNED (mop up the RBAC catalog)
+## Wave 8 — COMPLETE + PUSHED (mop up the RBAC catalog)
+
+3 workers, each touching disjoint files:
+
+- **Worker A** `narrow-crm-broad-grants` — convert the 2 remaining wide-helper CRM routes to `requirePerm` using the existing `DealCreator` and `QuoteSender` narrow perm sets. Touches `server/app.js` only.
+- **Worker B** `annotate-no-legacy-sites` — add `// rbac-audit: expected-roles Owner, Admin, ...` annotations to the 9 NO LEGACY sites (1 helper body + 8 pilot route handlers). Touches `server/app.js` + `server/rbac/helper-audit-map.json`.
+- **Worker C** `add-inventory-adjust-perms` — defensive — register the 7 inventory perm keys in `server/rbac/permissions.js` (no-op: all 7 already present).
+
+**Outcome:** All 3 workers landed commits within ~15 minutes of
+launch — the cleanest wave yet. The canary did fire as "FAILED —
+silent success" for all 3, but inspection of the handoff files showed
+the agents had completed the work and pushed. **Root cause of false
+positives:** the canary's `WORKTREE_COMMITS` check was comparing
+`HEAD` against the branch's upstream tracking ref (`@{u}`), which is
+the same branch the worker just pushed to — so `{@u}..HEAD` returned
+0 even when a real commit was landed. Fixed in `5177032`: now
+compares against the wave's base ref (`origin/main` by default,
+overridable via `A1_WAVE_BASE`).
+
+Octopus-merged in `5ac6f50` (with `--theirs` on the auto-generated
+`CATALOG_GRANT_AUDIT.md` + snapshot). Verification on `5177032`:
+
+- `node --test test/api.test.js` → **233/233** pass
+- `node --test test/rbac-broad-grants.test.js test/rbac-migration.test.js` → **71/71** pass
+- `node scripts/lint-rbac-broad-grants.js` → **48 PASS / 0 BROAD / 0 UNKNOWN / 0 NO LEGACY** ✨
+
+**The RBAC catalog is now fully lint-clean for the first time in the
+project's history.** All future perm/route additions will be caught
+by the linter before merge. Pushed `0ed0749..5177032` to `origin/main`.
+
+## Wave 8+ — TO PLAN (was: Wave 8 — PLANNED)
 
 Goal: drive the linter to **39 PASS / 0 BROAD / 0 UNKNOWN / 9 NO LEGACY** (or lower NO LEGACY if Worker A manages to annotate some).
 
