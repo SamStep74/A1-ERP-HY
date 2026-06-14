@@ -8126,6 +8126,7 @@ function requirePilotNextRecurringOngoingRenewalCloseoutWriter(user) {
 }
 
 function requireCrmEditor(user) {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
     const err = new Error("CRM editor role required");
     err.statusCode = 403;
@@ -8250,6 +8251,7 @@ function requireWorkflowBuilderSuggestionAccess(user) {
 }
 
 function requireCollectionEditor(user) {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant"].includes(user.role)) {
     const err = new Error("Collection editor role required");
     err.statusCode = 403;

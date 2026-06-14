@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-14T12:48:35.978Z`
+Generated: `2026-06-14T13:05:16.253Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,8 +14,8 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 37 |
-| BROAD GRANT — perm grants ⊃ legacy allow-list | 2 |
+| PASS — perm grants ⊆ legacy allow-list | 39 |
+| BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
 | NO LEGACY ALLOW-LIST — needs manual annotation | 9 |
 | UNKNOWN PERM KEY — not in current catalog | 0 |
 
@@ -33,6 +33,8 @@ Total entries audited: **48**
 | `requireAuditExportReader` | `security.audit.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
 | `requireAuditReader` | `security.audit.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
 | `requireAuditExportWriter` | `security.audit.export` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `requireCrmEditor` | `crm.deal.create` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
+| `requireCollectionEditor` | `crm.quote.send` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
 | `requireFinanceOperator` | `finance.journal.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
 | `requireAnalyticsSnapshotWriter` | `analytics.snapshot.create` | `Owner`, `Admin`, `Accountant` | _(empty)_ |
 | `GET /api/platform/tenant` | `system.tenant.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Owner` |
@@ -65,15 +67,7 @@ Total entries audited: **48**
 
 ## BROAD GRANT — perm grants ⊃ legacy allow-list
 
-A broad grant means the catalog grants the permission to roles that the
-legacy `user.role` allow-list explicitly did NOT. The migration cannot be
-re-applied until the catalog is narrowed (or the allow-list is widened,
-which requires product sign-off).
-
-| Source | Perm key | Legacy allow-list | Catalog grant | Extra roles |
-|---|---|---|---|---|
-| `requireCrmEditor` | `crm.deal.create` | `Owner`, `Admin`, `Operator`, `Salesperson`, `Service Manager` | `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
-| `requireCollectionEditor` | `crm.quote.send` | `Owner`, `Admin`, `Operator`, `Salesperson`, `Service Manager`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` | `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
+_No findings._ **The catalog is correctly scoped for every audited site.**
 
 ## NO LEGACY ALLOW-LIST — could not find a requireXxx helper for this perm
 
