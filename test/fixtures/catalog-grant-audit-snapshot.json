@@ -3,8 +3,8 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 37,
-    "broad": 2,
+    "pass": 39,
+    "broad": 0,
     "no-legacy": 9,
     "unknown-key": 0,
     "total": 48
@@ -131,15 +131,17 @@
       "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireCrmEditor",
       "permKey": "crm.deal.create",
       "expectedRoles": [
         "Owner",
         "Admin",
         "Operator",
-        "Salesperson",
-        "Service Manager"
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager"
       ],
       "actualRoles": [
         "Admin",
@@ -150,23 +152,20 @@
         "SalesRep",
         "ServiceManager"
       ],
-      "extraRoles": [
-        "SalesLead",
-        "SalesManager",
-        "SalesRep",
-        "ServiceManager"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireCollectionEditor",
       "permKey": "crm.quote.send",
       "expectedRoles": [
         "Owner",
         "Admin",
         "Operator",
-        "Salesperson",
-        "Service Manager",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager",
         "Accountant"
       ],
       "actualRoles": [
@@ -179,12 +178,7 @@
         "SalesRep",
         "ServiceManager"
       ],
-      "extraRoles": [
-        "SalesLead",
-        "SalesManager",
-        "SalesRep",
-        "ServiceManager"
-      ]
+      "extraRoles": []
     },
     {
       "kind": "pass",
