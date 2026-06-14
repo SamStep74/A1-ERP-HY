@@ -140,6 +140,7 @@ const {
   publicPlatformTenantSummary,
   sanitizePlatformError
 } = require("./platformTenant");
+const { requirePerm } = require("./rbac/guards");
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -260,7 +261,12 @@ function registerApi(app, db, options = {}) {
     platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
 
-  app.get("/api/platform/tenant", async request => {
+  app.get("/api/platform/tenant", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("system.tenant.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireAuditReader(user);
     return platformTenantSummary(request.a1Tenant, env);
@@ -353,13 +359,23 @@ function registerApi(app, db, options = {}) {
     return getMfaStatus(db, user);
   });
 
-  app.post("/api/security/mfa/enroll", async request => {
+  app.post("/api/security/mfa/enroll", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("security.mfa.configure")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireMfaPrivilegedUser(user);
     return createMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
   });
 
-  app.post("/api/security/mfa/verify-enrollment", async request => {
+  app.post("/api/security/mfa/verify-enrollment", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("security.mfa.configure")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireMfaPrivilegedUser(user);
     return verifyMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
@@ -393,13 +409,23 @@ function registerApi(app, db, options = {}) {
     return { apps: getAssignedApps(db, user.org_id, user.role), allApps: getAllApps(db, user.org_id) };
   });
 
-  app.get("/api/integrations/connectors", async request => {
+  app.get("/api/integrations/connectors", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("system.integrations.read")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireIntegrationReader(user);
     return { connectors: getIntegrationConnectors(db, user.org_id) };
   });
 
-  app.post("/api/integrations/connectors/:key/configure", async request => {
+  app.post("/api/integrations/connectors/:key/configure", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("system.integrations.update")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireIntegrationWriter(user);
     const connectorKey = normalizeIntegrationConnectorKey(request.params.key);
@@ -407,7 +433,12 @@ function registerApi(app, db, options = {}) {
     return { ok: true, connector };
   });
 
-  app.post("/api/integrations/connectors/:key/health-check", async request => {
+  app.post("/api/integrations/connectors/:key/health-check", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("system.integrations.update")
+    ]
+  }, async request => {
     const user = await app.auth(request);
     requireIntegrationWriter(user);
     const connectorKey = normalizeIntegrationConnectorKey(request.params.key);
