@@ -183,6 +183,29 @@ function buildApp(options = {}) {
   registerStatic(app);
   require("./localizationRoutes").registerLocalizationRoutes(app);
 
+  // Wave 2 — surface CopilotScopeError fields in the JSON response. The
+  // default Fastify error handler honors `err.statusCode` but drops the
+  // `code` / `missingKey` / `retryable` fields that the Copilot scope
+  // envelope exposes. We attach them here so the client UI can decide
+  // whether to show "request access from your admin" (retryable=false) vs.
+  // "verify MFA and retry" (retryable=true). Every other error type is
+  // delegated to Fastify's built-in handler so we don't suppress its
+  // normal validation / serialization responses.
+  app.setErrorHandler((err, request, reply) => {
+    if (err && err.name === "CopilotScopeError") {
+      reply.code(err.statusCode || 403).send({
+        error: err.code || "COPILOT_DENIED",
+        message: err.message,
+        missingKey: err.missingKey || null,
+        retryable: Boolean(err.retryable),
+      });
+      return;
+    }
+    // Delegate everything else (validation, serialization, internal) to
+    // Fastify's default handler unchanged.
+    reply.send(err);
+  });
+
   app.addHook("onClose", () => {
     if (!options.db && typeof db.close === "function") db.close();
   });
@@ -46511,9 +46534,20 @@ async function createCopilotQuestion(db, user, body) {
     err.statusCode = 400;
     throw err;
   }
+  // Wave 2: AI Copilot scope governance.
+  // App-access checks run first — the copilot app assignment and the
+  // intent-specific app assignment (finance, crm, etc.) are coarse-grained
+  // DB lookups; failing them is a 403 from the existing handler with a
+  // user-friendly message. After that, the per-request scope envelope is
+  // resolved. `enforceCopilotScope` throws a structured CopilotScopeError
+  // on any denial (missing `ai.copilot.use`, mutation without
+  // `ai.copilot.mutate`, MFA required for tool.execute / agent.deploy,
+  // source not in the user's grant set, tool not in the user's `ai.tool.*`
+  // keys, etc.).
   const intent = copilot.normalizeIntent(input.intent, question);
   requireAppAccess(db, user, "copilot");
   requireAppAccess(db, user, copilot.requiredAppForIntent(intent));
+  const scope = copilot.enforceCopilotScope(user, body);
   const customer = getCopilotCustomer(db, user.org_id, input.customerId);
   const context = buildCopilotContext(db, user, intent, input, customer);
   const citations = getCopilotCitations(db, user.org_id, intent, question);
@@ -46530,7 +46564,7 @@ async function createCopilotQuestion(db, user, body) {
     modelPolicy: getCopilotModelPolicy(),
     now: new Date().toISOString()
   });
-  recordCopilotAdvisory(db, user, packet, question);
+  recordCopilotAdvisory(db, user, packet, question, scope);
   return packet;
 }
 
@@ -46695,7 +46729,7 @@ function normalizeAiSettingsBody(body) {
   return patch;
 }
 
-function recordCopilotAdvisory(db, user, packet, question) {
+function recordCopilotAdvisory(db, user, packet, question, scope) {
   const customerId = packet.context?.customer?.id || "";
   const legalSources = (packet.citations || []).filter(source => /^law-/.test(source.id || ""));
   const sourceIds = legalSources.map(source => source.id);
@@ -46729,6 +46763,21 @@ function recordCopilotAdvisory(db, user, packet, question) {
     payload: details
   });
   audit(db, user.org_id, user.id, "copilot.advisory.generated", details);
+
+  // Wave 2 — AI action audit. Every accepted Copilot request gets a row in
+  // the audit log with the resolved scope envelope. This is the runtime
+  // counterpart to the catalog keys from Wave 1: it lets a security
+  // reviewer answer "what scope did this user actually run with?" for any
+  // request_id without re-deriving it from the role matrix.
+  if (scope && typeof scope === "object") {
+    const aiAuditDetails = copilot.buildCopilotAuditDetails(scope, {
+      requestId: packet.id,
+      intent: packet.intent,
+      customerId,
+      copilotId: packet.id,
+    });
+    audit(db, user.org_id, user.id, "ai.action.allowed", aiAuditDetails);
+  }
 }
 
 function getCopilotCustomer(db, orgId, customerId) {

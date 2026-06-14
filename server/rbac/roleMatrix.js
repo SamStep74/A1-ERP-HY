@@ -82,6 +82,10 @@ const ROLE_MATRIX = Object.freeze({
   Bookkeeper:      Object.freeze([
     'FinanceOperator', 'CRMOperator', 'DocsOperator', 'StandardUser',
   ]),
+  Lawyer:          Object.freeze([
+    'DocsOperator', 'ComplianceOperator',
+    'AIEnabled', 'StandardUser',
+  ]),
   SalesManager:    Object.freeze([
     'CRMOperator', 'InventoryOperator', 'DeskOperator',
     'DocsOperator', 'ReportBuilder', 'MarketingOperator',

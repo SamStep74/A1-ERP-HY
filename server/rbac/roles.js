@@ -187,6 +187,17 @@ const ROLES = Object.freeze({
     sessionHardLimitMinutes: 240,
     canBeImpersonated: true,
   },
+  Lawyer: {
+    id: 'Lawyer',
+    label: 'Lawyer',
+    description: 'Reviews contracts, e-signature workflows, and legal sources. Read-only on operational modules.',
+    parent: 'ComplianceOfficer',
+    isSystem: true,
+    appSet: ['dashboard', 'docs', 'reports', 'compliance'],
+    mfaRequired: true,
+    sessionHardLimitMinutes: 120,
+    canBeImpersonated: false,
+  },
   SalesManager: {
     id: 'SalesManager',
     label: 'Sales Manager',

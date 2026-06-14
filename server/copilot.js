@@ -26,6 +26,18 @@ function requiredAppForIntent(intent) {
 // confidence — that gate is enforced below in buildCopilotPacket.
 const { normalizeSupplementalSources, MAX_SUPPLEMENTAL_SOURCES } = require("./vendor/a1-ai");
 
+// --- AI Copilot scope governance (Wave 2) -----------------------------------
+// Resolves a concrete scope envelope (allowed tools, sources, tokens, MFA /
+// approval requirements) for the current user + request, and throws a
+// structured CopilotScopeError on any denial. The HTTP handler calls
+// `enforceCopilotScope(user, body)` at the top of the request flow and then
+// passes the returned scope to the advisory builder and the audit log.
+//
+// The governance module is the runtime enforcement layer for the catalog
+// keys introduced in Wave 1 (`ai.copilot.*`, `ai.agent.*`, `ai.tool.*`,
+// `ai.budget.*`, `ai.fallback.update`).
+const aiGovernance = require("./ai/governance");
+
 // Append a clearly-labeled, non-authoritative note. The curated "Աղբյուրներ:"
 // line built by buildAnswer() remains the source of record.
 function withSupplementalNote(answer, supplementalSources) {
@@ -220,5 +232,15 @@ module.exports = {
   requiredAppForIntent,
   buildCopilotPacket,
   normalizeSupplementalSources,
-  MAX_SUPPLEMENTAL_SOURCES
+  MAX_SUPPLEMENTAL_SOURCES,
+  // Wave 2 — AI Copilot scope governance.
+  // Re-exported here so HTTP handlers can `require("./copilot")` and reach
+  // every copilot-related symbol through one entry point. The actual logic
+  // lives in `./ai/governance.js`; this re-export is purely a convenience.
+  resolveCopilotScope: aiGovernance.resolveCopilotScope,
+  enforceCopilotScope: aiGovernance.enforceCopilotScope,
+  summarizeScope: aiGovernance.summarizeScope,
+  buildCopilotAuditDetails: aiGovernance.buildAuditDetails,
+  CopilotScopeError: aiGovernance.CopilotScopeError,
+  COPILOT_SCOPE_ERROR_CODES: aiGovernance.ERROR_CODES,
 };

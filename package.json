@@ -11,7 +11,9 @@
     "dev": "NODE_ENV=development node --watch server/index.js",
     "dev:lan": "HOST=0.0.0.0 NODE_ENV=development node --watch server/index.js",
     "build:ui": "npm --prefix web install && npm --prefix web run build",
-    "test": "node --test --test-concurrency=4 --test-timeout=60000",
+    "test": "node scripts/run-tests.js",
+    "test:unit": "node --test --test-concurrency=4 --test-timeout=60000",
+    "lint:rbac": "node scripts/lint-rbac.js",
     "smoke": "node scripts/smoke.js",
     "install:server": "bash deploy/install.sh",
     "backup": "bash deploy/backup.sh"
