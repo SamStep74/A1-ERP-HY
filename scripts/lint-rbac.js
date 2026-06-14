@@ -17,10 +17,22 @@
 //      objects for top-level keys like tax_id / account_number; warn if
 //      a redact path that would cover them is missing.)
 //
+//   4. Catalog-driven broad grants: for every requireXxx helper and
+//      preHandler: requirePerm(...) route, the set of roles that hold
+//      the perm key (computed by inverting roleMatrix + matrix
+//      permission sets) must be a SUBSET of the legacy user.role
+//      allow-list. If the catalog is wider than the legacy, the lint
+//      flags it as a BROAD GRANT (the failure mode the Wave 3 workers
+//      hit). Delegates to scripts/lint-rbac-broad-grants.js.
+//
 // Usage:
 //   node scripts/lint-rbac.js [--roots=server/rbac,server/migration] [--quiet] [--no-fail]
+//   node scripts/lint-rbac.js --no-broad-grants   # skip the catalog-grant stage
 //
-// Exits 0 on a clean run, 1 on any finding (unless --no-fail).
+// Exits 0 on a clean run, 1 on any finding (unless --no-fail). The
+// broad-grant check has its own exit semantics and always fails on
+// BROAD GRANT findings, regardless of --no-fail, because a broad grant
+// is a security regression, not a maintainability concern.
 //
 // Wired into `npm test` so the rule is enforced on every CI run.
 
@@ -46,6 +58,7 @@ const boolFlag = (name) => args.includes(`--${name}`);
 const rootsArg = flag('roots');
 const quiet = boolFlag('quiet');
 const noFail = boolFlag('no-fail');
+const skipBroadGrants = boolFlag('no-broad-grants') || boolFlag('skip-broad-grants');
 
 const DEFAULT_ROOTS = ['server', 'web/src'];
 const roots = (rootsArg ? rootsArg.split(',') : DEFAULT_ROOTS).map((p) => path.resolve(p));
@@ -257,6 +270,45 @@ if (!quiet) {
 }
 
 if (errors.length > 0 && !noFail) {
+  process.exit(1);
+}
+
+// ───────────── Stage 2: catalog-grant audit (broad grants) ─────────────
+//
+// Delegates to scripts/lint-rbac-broad-grants.js. This catches the
+// failure mode the role-check stage above cannot: a route that goes
+// through `requirePerm(...)` correctly but the catalog-driven role
+// matrix is wider than the legacy `user.role` allow-list the route
+// used to enforce. Wave 3 hit this; this stage prevents the regression
+// from coming back.
+//
+// Exit semantics: this stage always fails on BROAD GRANT findings,
+// even when --no-fail is set. A broad grant is a security regression
+// (granting access to roles that previously had none), not a code
+// quality warning, so it is not eligible for the noFail escape hatch.
+let broadGrantCount = 0;
+if (!skipBroadGrants) {
+  let broadGrantScript;
+  try {
+    // Lazy-require so `--no-broad-grants` works even if the sibling
+    // script is missing (e.g. older checkouts pre-broad-grants).
+    broadGrantScript = require('./lint-rbac-broad-grants.js');
+  } catch (err) {
+    console.error(`✗ Could not load scripts/lint-rbac-broad-grants.js: ${err.message}`);
+    process.exit(1);
+  }
+  const auditResult = broadGrantScript.audit();
+  if (!quiet) {
+    console.log('');
+    console.log(broadGrantScript.renderStdoutSummary(auditResult));
+  }
+  broadGrantCount = auditResult.findings.filter((f) => f.kind === 'broad').length;
+}
+
+if (errors.length > 0 && !noFail) {
+  process.exit(1);
+}
+if (broadGrantCount > 0) {
   process.exit(1);
 }
 process.exit(0);
