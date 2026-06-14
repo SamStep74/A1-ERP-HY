@@ -48553,6 +48553,10 @@ function formatCatalogItem(row) {
     categoryName: row.category_name || "",
     sku: row.sku,
     name: row.name,
+    nameHy: row.name_hy || row.name,
+    nameRu: row.name_ru || "",
+    nameEn: row.name_en || row.name,
+    barcode: row.barcode || "",
     description: row.description,
     itemType: row.item_type,
     status: row.status,
@@ -48562,6 +48566,10 @@ function formatCatalogItem(row) {
     ...catalogMarginEvidence(row.list_price, row.standard_cost),
     currency: row.currency,
     vatMode: row.vat_mode,
+    vatClass: row.vat_class || "standard",
+    exciseMarker: row.excise_marker || "",
+    fiscalReceiptCategory: row.fiscal_receipt_category || "",
+    armRegionOfOrigin: row.arm_region_of_origin || "",
     trackStock: Boolean(row.track_stock),
     trackLots: Boolean(row.track_lots),
     fiscalReceiptRequired: Boolean(row.fiscal_receipt_required),
@@ -48744,23 +48752,29 @@ function createCatalogItem(db, user, body) {
   assertCatalogCategory(db, user.org_id, input.categoryId);
   assertCatalogUnitOfMeasure(db, user.org_id, input.unitOfMeasure);
   assertCatalogSkuAvailable(db, user.org_id, input.sku);
+  assertCatalogBarcodeAvailable(db, user.org_id, input.barcode);
   assertCatalogItemInvariants(input);
   const now = new Date().toISOString();
   const itemId = randomId("catitem");
   db.prepare(`
     INSERT INTO catalog_items (
-      id, org_id, category_id, sku, name, description, item_type, status,
-      unit_of_measure, list_price, standard_cost, currency, vat_mode,
+      id, org_id, category_id, sku, name, name_hy, name_ru, name_en, barcode, description,
+      item_type, status, unit_of_measure, list_price, standard_cost, currency, vat_mode,
+      vat_class, excise_marker, fiscal_receipt_category, arm_region_of_origin,
       track_stock, track_lots, fiscal_receipt_required, created_by_user_id,
       created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     itemId,
     user.org_id,
     input.categoryId,
     input.sku,
     input.name,
+    input.nameHy,
+    input.nameRu || null,
+    input.nameEn || null,
+    input.barcode || null,
     input.description,
     input.itemType,
     input.status,
@@ -48769,6 +48783,10 @@ function createCatalogItem(db, user, body) {
     input.standardCost,
     input.currency,
     input.vatMode,
+    input.vatClass,
+    input.exciseMarker || null,
+    input.fiscalReceiptCategory || null,
+    input.armRegionOfOrigin || null,
     input.trackStock ? 1 : 0,
     input.trackLots ? 1 : 0,
     input.fiscalReceiptRequired ? 1 : 0,
@@ -48783,7 +48801,7 @@ function createCatalogItem(db, user, body) {
     subjectType: "catalog_item",
     subjectId: itemId,
     status: input.status,
-    payload: { sku: input.sku, itemType: input.itemType, categoryId: input.categoryId, listPrice: input.listPrice, vatMode: input.vatMode }
+    payload: { sku: input.sku, itemType: input.itemType, categoryId: input.categoryId, listPrice: input.listPrice, vatMode: input.vatMode, vatClass: input.vatClass }
   });
   audit(db, user.org_id, user.id, "catalog.item.created", { itemId, sku: input.sku, itemType: input.itemType, status: input.status });
   return getCatalogItem(db, user.org_id, itemId);
@@ -48800,18 +48818,25 @@ function updateCatalogItem(db, user, itemId, body) {
   if (input.categoryId) assertCatalogCategory(db, user.org_id, input.categoryId);
   assertCatalogUnitOfMeasure(db, user.org_id, input.unitOfMeasure);
   if (input.sku !== existing.sku) assertCatalogSkuAvailable(db, user.org_id, input.sku, itemId);
+  if (input.barcode !== existing.barcode) assertCatalogBarcodeAvailable(db, user.org_id, input.barcode, itemId);
   assertCatalogItemInvariants(input);
   const now = new Date().toISOString();
   db.prepare(`
     UPDATE catalog_items
-    SET category_id = ?, sku = ?, name = ?, description = ?, item_type = ?, status = ?,
+    SET category_id = ?, sku = ?, name = ?, name_hy = ?, name_ru = ?, name_en = ?, barcode = ?,
+      description = ?, item_type = ?, status = ?,
       unit_of_measure = ?, list_price = ?, standard_cost = ?, currency = ?, vat_mode = ?,
+      vat_class = ?, excise_marker = ?, fiscal_receipt_category = ?, arm_region_of_origin = ?,
       track_stock = ?, track_lots = ?, fiscal_receipt_required = ?, updated_at = ?
     WHERE org_id = ? AND id = ?
   `).run(
     input.categoryId || null,
     input.sku,
     input.name,
+    input.nameHy,
+    input.nameRu || null,
+    input.nameEn || null,
+    input.barcode || null,
     input.description,
     input.itemType,
     input.status,
@@ -48820,6 +48845,10 @@ function updateCatalogItem(db, user, itemId, body) {
     input.standardCost,
     input.currency,
     input.vatMode,
+    input.vatClass,
+    input.exciseMarker || null,
+    input.fiscalReceiptCategory || null,
+    input.armRegionOfOrigin || null,
     input.trackStock ? 1 : 0,
     input.trackLots ? 1 : 0,
     input.fiscalReceiptRequired ? 1 : 0,
@@ -48834,7 +48863,7 @@ function updateCatalogItem(db, user, itemId, body) {
     subjectType: "catalog_item",
     subjectId: itemId,
     status: input.status,
-    payload: { sku: input.sku, itemType: input.itemType, categoryId: input.categoryId, listPrice: input.listPrice, vatMode: input.vatMode }
+    payload: { sku: input.sku, itemType: input.itemType, categoryId: input.categoryId, listPrice: input.listPrice, vatMode: input.vatMode, vatClass: input.vatClass }
   });
   audit(db, user.org_id, user.id, "catalog.item.updated", { itemId, sku: input.sku, status: input.status });
   return getCatalogItem(db, user.org_id, itemId);
@@ -48849,6 +48878,10 @@ function normalizeCatalogItemBody(body, options = {}) {
     categoryId: normalizeCatalogText(body, "categoryId", { required: required("categoryId"), fallback: existing.categoryId || "", maxLength: 160, idLike: true }),
     sku: normalizeCatalogSku(body, "sku", { required: required("sku"), fallback: existing.sku || "" }),
     name: normalizeCatalogText(body, "name", { required: required("name"), fallback: existing.name || "", minLength: 3, maxLength: 200 }),
+    nameHy: normalizeArmenianNameHy(body, "nameHy", { required: false, fallback: existing.nameHy || existing.name || "" }),
+    nameRu: normalizeOptionalText(body, "nameRu", { fallback: existing.nameRu || "", maxLength: 200 }),
+    nameEn: normalizeOptionalText(body, "nameEn", { fallback: existing.nameEn || "", maxLength: 200 }),
+    barcode: normalizeBarcode(body, "barcode", { fallback: existing.barcode || "" }),
     description: normalizeCatalogText(body, "description", { fallback: existing.description || "", maxLength: 1000 }),
     itemType: normalizeCatalogChoice(body, "itemType", ["service", "stockable", "consumable", "kit"], existing.itemType || "service", required("itemType")),
     status: normalizeCatalogChoice(body, "status", ["draft", "active", "archived"], existing.status || "active", false),
@@ -48857,6 +48890,10 @@ function normalizeCatalogItemBody(body, options = {}) {
     standardCost: normalizeCatalogMoney(body, "standardCost", { fallback: existing.standardCost ?? 0 }),
     currency: normalizeCatalogCurrency(body, "currency", existing.currency || activeCurrencyCode()),
     vatMode: normalizeCatalogChoice(body, "vatMode", ["standard", "exempt", "zero"], existing.vatMode || "standard", false),
+    vatClass: normalizeCatalogChoice(body, "vatClass", ["standard", "reduced", "exempt", "reverse_charge"], existing.vatClass || "standard", false),
+    exciseMarker: normalizeOptionalChoice(body, "exciseMarker", ["alcohol", "tobacco", "fuel", "jewelry"], existing.exciseMarker || ""),
+    fiscalReceiptCategory: normalizeOptionalChoice(body, "fiscalReceiptCategory", ["food", "electronics", "clothing", "service", "other"], existing.fiscalReceiptCategory || ""),
+    armRegionOfOrigin: normalizeArmRegionCode(body, "armRegionOfOrigin", { fallback: existing.armRegionOfOrigin || "" }),
     trackStock: normalizeCatalogBoolean(body, "trackStock", existing.trackStock || false),
     trackLots: normalizeCatalogBoolean(body, "trackLots", existing.trackLots || false),
     fiscalReceiptRequired: normalizeCatalogBoolean(body, "fiscalReceiptRequired", existing.fiscalReceiptRequired ?? true)
@@ -48864,8 +48901,76 @@ function normalizeCatalogItemBody(body, options = {}) {
 }
 
 function normalizeCatalogSku(body, field, options = {}) {
-  const text = normalizeCatalogText(body, field, { ...options, minLength: 2, maxLength: 80 }).toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9._-]{1,79}$/.test(text)) throwInvalidCatalogMetadata();
+  const text = normalizeCatalogText(body, field, { ...options, minLength: 1, maxLength: 40 }).toUpperCase();
+  // RA product master rule: 1-40 chars from [A-Z0-9_-]. No dots, no spaces.
+  if (!/^[A-Z0-9_-]{1,40}$/.test(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+// Armenian display name: must be in the Armenian Unicode block (Ա-֏) plus
+// space, comma, period, dash. Any other character (Latin, digits, symbols) is rejected
+// so the field stays purely Armenian-language metadata.
+function normalizeArmenianNameHy(body, field, options = {}) {
+  const { required = false, fallback = "", minLength = 2, maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCatalogMetadata();
+    return String(fallback || "").trim();
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) throwInvalidCatalogMetadata();
+  if (!/^[Ա-֏\s.,-]+$/.test(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+// Optional localized name (Russian/English). Plain text, no Armenian-only constraint.
+function normalizeOptionalText(body, field, options = {}) {
+  const { fallback = "", maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return String(fallback || "").trim();
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (text.length === 0) return "";
+  if (text.length > maxLength) throwInvalidCatalogMetadata();
+  return text;
+}
+
+// Barcode: 8-14 digits (EAN-8 / UPC-A / EAN-13 / ITF-14). Optional — empty string means absent.
+function normalizeBarcode(body, field, options = {}) {
+  const { fallback = "" } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return String(fallback || "").trim();
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (text === "") return "";
+  if (!/^\d{8,14}$/.test(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+// Optional choice: returns the trimmed value or empty string if absent.
+// Used for fields like excise_marker and fiscal_receipt_category where NULL is valid.
+function normalizeOptionalChoice(body, field, allowed, fallback = "") {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === null || value === "") return String(fallback || "").trim();
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (text === "") return "";
+  if (!allowed.includes(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+// Armenian admin region code (e.g. 'AM.AR' for Ararat, 'AM.E' for Yerevan). Optional;
+// FK to a future `arm_regions` table is out of scope — for now we just validate the
+// shape so callers don't accidentally store free text.
+function normalizeArmRegionCode(body, field, options = {}) {
+  const { fallback = "" } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === null || value === "") return String(fallback || "").trim();
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim().toUpperCase();
+  if (text === "") return "";
+  if (!/^AM\.[A-Z0-9]{1,8}$/.test(text)) throwInvalidCatalogMetadata();
   return text;
 }
 
@@ -48944,6 +49049,18 @@ function assertCatalogSkuAvailable(db, orgId, sku, currentItemId = "") {
   const row = db.prepare("SELECT id FROM catalog_items WHERE org_id = ? AND sku = ?").get(orgId, sku);
   if (row && row.id !== currentItemId) {
     const err = new Error("Catalog SKU already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+// Barcode is optional (empty string means absent), but a set barcode must be unique
+// within the org. Mirrors the partial UNIQUE INDEX added in the Armenian-fields migration.
+function assertCatalogBarcodeAvailable(db, orgId, barcode, currentItemId = "") {
+  if (!barcode) return;
+  const row = db.prepare("SELECT id FROM catalog_items WHERE org_id = ? AND barcode = ?").get(orgId, barcode);
+  if (row && row.id !== currentItemId) {
+    const err = new Error("Catalog barcode already exists");
     err.statusCode = 409;
     throw err;
   }

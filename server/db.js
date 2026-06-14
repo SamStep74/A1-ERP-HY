@@ -529,6 +529,15 @@ function initSchema(db) {
       track_stock INTEGER NOT NULL DEFAULT 0,
       track_lots INTEGER NOT NULL DEFAULT 0,
       fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
+      -- Armenian product master (first-class columns for indexing/searching).
+      name_hy TEXT NOT NULL DEFAULT '',
+      name_ru TEXT,
+      name_en TEXT,
+      barcode TEXT,
+      vat_class TEXT NOT NULL DEFAULT 'standard' CHECK (vat_class IN ('standard', 'reduced', 'exempt', 'reverse_charge')),
+      excise_marker TEXT CHECK (excise_marker IS NULL OR excise_marker IN ('alcohol', 'tobacco', 'fuel', 'jewelry')),
+      fiscal_receipt_category TEXT CHECK (fiscal_receipt_category IS NULL OR fiscal_receipt_category IN ('food', 'electronics', 'clothing', 'service', 'other')),
+      arm_region_of_origin TEXT,
       created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -547,6 +556,12 @@ function initSchema(db) {
       catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
       sku TEXT NOT NULL,
       name TEXT NOT NULL,
+      name_hy TEXT NOT NULL DEFAULT '',
+      name_ru TEXT,
+      name_en TEXT,
+      barcode TEXT,
+      weight_grams INTEGER,
+      excise_amount INTEGER,
       attributes_json TEXT NOT NULL DEFAULT '{}',
       unit_of_measure TEXT NOT NULL DEFAULT 'unit',
       list_price INTEGER NOT NULL DEFAULT 0,
@@ -7317,6 +7332,17 @@ function ensureCatalogLayer(db) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item_variant ON quote_lines(org_id, catalog_item_variant_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_price_list ON quote_lines(org_id, catalog_price_list_id)");
 
+  // Armenian product master fields (first-class columns so they can be indexed,
+  // searched, and reported on — not a JSON blob). Idempotent: safe to re-run.
+  // - name_hy is NOT NULL; existing seeded English names are backfilled as a fallback.
+  // - sku gains a stricter per-org UNIQUE INDEX (the legacy UNIQUE constraint was already
+  //   on the table, but this is reasserted so partial migrations still get a unique index
+  //   for lookups).
+  // - barcode uses a PARTIAL UNIQUE INDEX (where NOT NULL) so multiple items may omit it.
+  // - vat_class / excise_marker / fiscal_receipt_category are validated by CHECK constraints
+  //   via column DEFAULT; application-layer validation enforces them on write paths.
+  ensureCatalogArmenianFields(db);
+
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
     seedCatalogUnitsOfMeasure(db, org.id);
@@ -7328,6 +7354,61 @@ function ensureCatalogLayer(db) {
     seedCatalogMarginRules(db, org.id);
     seedCatalogPriceLists(db, org.id);
   }
+}
+
+function ensureCatalogArmenianFields(db) {
+  // ---- catalog_items ----
+  const itemColumns = new Set(db.prepare("PRAGMA table_info(catalog_items)").all().map(column => column.name));
+  const itemAdditions = {
+    // Armenian display name; the legacy `name` column remains the English fallback.
+    name_hy: "TEXT NOT NULL DEFAULT ''",
+    name_ru: "TEXT",
+    name_en: "TEXT",
+    // Stock keeping unit (already UNIQUE via the legacy UNIQUE constraint).
+    sku: null, // column exists with NOT NULL UNIQUE
+    // EAN-8 / UPC-A / EAN-13 / ITF-14 (8-14 digits). Unique within org when set.
+    barcode: "TEXT",
+    // RA VAT class: standard (20%), reduced (0% or 5%), exempt, reverse_charge.
+    vat_class: "TEXT NOT NULL DEFAULT 'standard'",
+    // RA excise marker for alcohol/tobacco/fuel/jewelry.
+    excise_marker: "TEXT",
+    // POS fiscal printer category.
+    fiscal_receipt_category: "TEXT",
+    // Optional Armenian admin region (e.g. 'AM.AR' Ararat). TEXT for now; FK to
+    // a future `arm_regions` table is not in scope.
+    arm_region_of_origin: "TEXT"
+  };
+  for (const [name, definition] of Object.entries(itemAdditions)) {
+    if (definition && !itemColumns.has(name)) db.exec(`ALTER TABLE catalog_items ADD COLUMN ${name} ${definition}`);
+  }
+  // Backfill name_hy for any rows that pre-date this migration. We use the legacy
+  // `name` (English) as a placeholder; API write paths will overwrite it on next edit.
+  db.exec("UPDATE catalog_items SET name_hy = name WHERE name_hy IS NULL OR name_hy = ''");
+  // Reassert the legacy UNIQUE constraint as a UNIQUE INDEX (idempotent).
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_items_org_sku ON catalog_items(org_id, sku)");
+  // Partial UNIQUE INDEX: many items may omit barcode, but a set barcode is unique per org.
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_items_org_barcode ON catalog_items(org_id, barcode) WHERE barcode IS NOT NULL");
+  // Helpful lookup index for fiscal printer category (POS flow joins on this).
+  db.exec("CREATE INDEX IF NOT EXISTS idx_catalog_items_fiscal_category ON catalog_items(org_id, fiscal_receipt_category)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_catalog_items_excise_marker ON catalog_items(org_id, excise_marker)");
+
+  // ---- catalog_item_variants ----
+  const variantColumns = new Set(db.prepare("PRAGMA table_info(catalog_item_variants)").all().map(column => column.name));
+  const variantAdditions = {
+    name_hy: "TEXT NOT NULL DEFAULT ''",
+    name_ru: "TEXT",
+    name_en: "TEXT",
+    barcode: "TEXT",
+    weight_grams: "INTEGER",
+    excise_amount: "INTEGER"
+  };
+  for (const [name, definition] of Object.entries(variantAdditions)) {
+    if (definition && !variantColumns.has(name)) db.exec(`ALTER TABLE catalog_item_variants ADD COLUMN ${name} ${definition}`);
+  }
+  // Backfill variant name_hy from the legacy name column.
+  db.exec("UPDATE catalog_item_variants SET name_hy = name WHERE name_hy IS NULL OR name_hy = ''");
+  // Partial UNIQUE INDEX on variant barcode per org (allows NULL).
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_item_variants_org_barcode ON catalog_item_variants(org_id, barcode) WHERE barcode IS NOT NULL");
 }
 
 function ensureInventoryLayer(db) {
