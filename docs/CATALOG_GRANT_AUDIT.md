@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-14T13:05:16.253Z`
+Generated: `2026-06-14T14:10:18.760Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,9 +14,9 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 39 |
+| PASS — perm grants ⊆ legacy allow-list | 48 |
 | BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
-| NO LEGACY ALLOW-LIST — needs manual annotation | 9 |
+| NO LEGACY ALLOW-LIST — needs manual annotation | 0 |
 | UNKNOWN PERM KEY — not in current catalog | 0 |
 
 Total entries audited: **48**
@@ -37,6 +37,7 @@ Total entries audited: **48**
 | `requireCollectionEditor` | `crm.quote.send` | `Owner`, `Admin`, `Operator`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner`, `SalesLead`, `SalesManager`, `SalesRep`, `ServiceManager` |
 | `requireFinanceOperator` | `finance.journal.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
 | `requireAnalyticsSnapshotWriter` | `analytics.snapshot.create` | `Owner`, `Admin`, `Accountant` | _(empty)_ |
+| `requireAnalyticsReportReader` | `analytics.report.read` | `Owner`, `Admin`, `Auditor`, `Accountant` | _(empty)_ |
 | `GET /api/platform/tenant` | `system.tenant.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Owner` |
 | `POST /api/security/mfa/enroll` | `security.mfa.configure` | `Owner`, `Admin` | `Admin`, `Owner` |
 | `POST /api/security/mfa/verify-enrollment` | `security.mfa.configure` | `Owner`, `Admin` | `Admin`, `Owner` |
@@ -64,6 +65,14 @@ Total entries audited: **48**
 | `POST /api/purchase/orders/:id/receive` | `purchase.receipt.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
 | `POST /api/purchase/orders/:id/return` | `purchase.return.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
 | `POST /api/purchase/orders/:id/bill` | `finance.bill.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
+| `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |
+| `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | `Owner`, `Admin`, `Salesperson` | _(empty)_ |
+| `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |
+| `POST /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.create` | `Owner`, `Admin`, `Salesperson` | _(empty)_ |
+| `GET /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.read` | `Owner`, `Admin`, `Operator`, `Salesperson`, `Service Manager`, `Accountant`, `Auditor` | _(empty)_ |
+| `POST /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.create` | `Owner`, `Admin`, `Operator`, `Salesperson`, `Service Manager` | _(empty)_ |
+| `GET /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.read` | `Owner`, `Admin`, `Accountant`, `Auditor` | _(empty)_ |
+| `POST /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.create` | `Owner`, `Admin`, `Accountant` | _(empty)_ |
 
 ## BROAD GRANT — perm grants ⊃ legacy allow-list
 
@@ -71,25 +80,7 @@ _No findings._ **The catalog is correctly scoped for every audited site.**
 
 ## NO LEGACY ALLOW-LIST — could not find a requireXxx helper for this perm
 
-These are perm keys the Wave 3 migration targeted (or the audit map
-catalogued) for which the legacy code did not use a static role list.
-Each row is either a route that had no in-handler check (just `app.auth`),
-or a helper that delegated to a compound predicate (`mfaRequiredForRole`,
-`canAccessInvoiceOverdueExplanation`, etc.). They are reported so that a
-future wave can add a `// rbac-audit: expected-roles Owner, Admin, ...`
-annotation inside the helper body and the lint will pick it up automatically.
-
-| Source | Perm key | Catalog grant |
-|---|---|---|
-| `requireAnalyticsReportReader` | `analytics.report.read` | _(empty)_ |
-| `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | _(empty)_ |
-| `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | _(empty)_ |
-| `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | _(empty)_ |
-| `POST /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.create` | _(empty)_ |
-| `GET /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.read` | _(empty)_ |
-| `POST /api/pilots/clinic-wellness/operator-workbenches` | `pilot.workbench.create` | _(empty)_ |
-| `GET /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.read` | _(empty)_ |
-| `POST /api/pilots/clinic-wellness/accountant-reviews` | `pilot.review.create` | _(empty)_ |
+_No findings._
 
 ---
 

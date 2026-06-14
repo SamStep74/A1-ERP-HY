@@ -147,8 +147,17 @@ if [[ $RC -eq 0 ]]; then
   fi
   WORKTREE_COMMITS=0
   if command -v git >/dev/null 2>&1 && [[ -d "$WORKTREE_PATH/.git" || -f "$WORKTREE_PATH/.git" ]]; then
-    BASE="$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref @{u} 2>/dev/null || echo "main")"
-    WORKTREE_COMMITS="$(git -C "$WORKTREE_PATH" rev-list --count "$BASE..HEAD" 2>/dev/null || echo 0)"
+    # Compare against the wave's base ref (default: origin/main), NOT the
+    # branch's upstream tracking ref. If we compared against @{u}, a worker
+    # that committed AND pushed would have its commit on the upstream too,
+    # so @{u}..HEAD would be 0 — a false-negative silent-success trip.
+    WAVE_BASE="${A1_WAVE_BASE:-origin/main}"
+    # Try wave base first; fall back to main if origin/main doesn't exist
+    # (e.g. a fresh worktree with no fetch yet).
+    if ! git -C "$WORKTREE_PATH" rev-parse --verify "$WAVE_BASE" >/dev/null 2>&1; then
+      WAVE_BASE="main"
+    fi
+    WORKTREE_COMMITS="$(git -C "$WORKTREE_PATH" rev-list --count "$WAVE_BASE..HEAD" 2>/dev/null || echo 0)"
   fi
 
   if [[ $HANDOFF_STILL_SEED -eq 1 || $WORKTREE_COMMITS -eq 0 ]]; then

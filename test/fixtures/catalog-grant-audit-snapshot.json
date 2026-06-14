@@ -3,9 +3,9 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 39,
+    "pass": 48,
     "broad": 0,
-    "no-legacy": 9,
+    "no-legacy": 0,
     "unknown-key": 0,
     "total": 48
   },
@@ -209,10 +209,15 @@
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "requireAnalyticsReportReader",
       "permKey": "analytics.report.read",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor",
+        "Accountant"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
@@ -912,66 +917,111 @@
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "GET /api/pilots/templates/clinic-wellness",
       "permKey": "pilot.template.read",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Salesperson",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "POST /api/pilots/templates/clinic-wellness/install",
       "permKey": "pilot.template.install",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Salesperson"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "GET /api/pilots/clinic-wellness/owner-briefs",
       "permKey": "pilot.brief.read",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Salesperson",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "POST /api/pilots/clinic-wellness/owner-briefs",
       "permKey": "pilot.brief.create",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Salesperson"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "GET /api/pilots/clinic-wellness/operator-workbenches",
       "permKey": "pilot.workbench.read",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Salesperson",
+        "Service Manager",
+        "Accountant",
+        "Auditor"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "POST /api/pilots/clinic-wellness/operator-workbenches",
       "permKey": "pilot.workbench.create",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Salesperson",
+        "Service Manager"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "GET /api/pilots/clinic-wellness/accountant-reviews",
       "permKey": "pilot.review.read",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "Auditor"
+      ],
       "actualRoles": [],
       "extraRoles": []
     },
     {
-      "kind": "no-legacy",
+      "kind": "pass",
       "source": "POST /api/pilots/clinic-wellness/accountant-reviews",
       "permKey": "pilot.review.create",
-      "expectedRoles": null,
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant"
+      ],
       "actualRoles": [],
       "extraRoles": []
     }
