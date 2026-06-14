@@ -676,70 +676,97 @@ function registerApi(app, db, options = {}) {
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
-  app.get("/api/purchase/orders", async request => {
-    const user = await app.auth(request);
-    requirePurchaseReader(user);
-    return { orders: getPurchaseOrders(db, user.org_id) };
+  app.get("/api/purchase/orders", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.read"),
+    ],
+  }, async request => {
+    return { orders: getPurchaseOrders(db, request.user.org_id) };
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
-  app.get("/api/purchase/vendors", async request => {
-    const user = await app.auth(request);
-    requirePurchaseReader(user);
-    return { vendors: getPurchaseVendors(db, user.org_id) };
+  app.get("/api/purchase/vendors", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.vendor.read"),
+    ],
+  }, async request => {
+    return { vendors: getPurchaseVendors(db, request.user.org_id) };
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
-  app.get("/api/purchase/analytics", async request => {
-    const user = await app.auth(request);
-    requirePurchaseReader(user);
-    return getPurchaseAnalytics(db, user.org_id);
+  app.get("/api/purchase/analytics", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.analytics.read"),
+    ],
+  }, async request => {
+    return getPurchaseAnalytics(db, request.user.org_id);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
-  app.post("/api/purchase/vendors", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
-    return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
+  app.post("/api/purchase/vendors", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.vendor.create"),
+    ],
+  }, async request => {
+    return createPurchaseVendor(db, request.user, request.body === undefined ? {} : request.body);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
-  app.post("/api/purchase/orders", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
-    return createPurchaseOrder(db, user, request.body === undefined ? {} : request.body);
+  app.post("/api/purchase/orders", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.create"),
+    ],
+  }, async request => {
+    return createPurchaseOrder(db, request.user, request.body === undefined ? {} : request.body);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
-  app.post("/api/purchase/orders/:id/confirm", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
+  app.post("/api/purchase/orders/:id/confirm", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.update"),
+    ],
+  }, async request => {
     const orderId = normalizePurchasePathId(request.params.id);
-    return confirmPurchaseOrder(db, user, orderId);
+    return confirmPurchaseOrder(db, request.user, orderId);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
-  app.post("/api/purchase/orders/:id/receive", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
+  app.post("/api/purchase/orders/:id/receive", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.receipt.create"),
+    ],
+  }, async request => {
     const orderId = normalizePurchasePathId(request.params.id);
-    return receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+    return receivePurchaseOrder(db, request.user, orderId, request.body === undefined ? {} : request.body);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
-  app.post("/api/purchase/orders/:id/return", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
+  app.post("/api/purchase/orders/:id/return", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.return.create"),
+    ],
+  }, async request => {
     const orderId = normalizePurchasePathId(request.params.id);
-    return returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+    return returnPurchaseOrder(db, request.user, orderId, request.body === undefined ? {} : request.body);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Accountant
-  app.post("/api/purchase/orders/:id/bill", async request => {
-    const user = await app.auth(request);
-    requireFinanceOperator(user);
+  app.post("/api/purchase/orders/:id/bill", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("finance.bill.create"),
+    ],
+  }, async request => {
     const orderId = normalizePurchasePathId(request.params.id);
-    return billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+    return billPurchaseOrder(db, request.user, orderId, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/pilots/templates/clinic-wellness", async request => {

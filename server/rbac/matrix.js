@@ -194,12 +194,19 @@ const PERMISSION_SETS = Object.freeze({
   // finance.journal.create is intentionally NOT in FinanceOperator —
   // the legacy requireFinanceOperator helper only allows Owner, Admin,
   // Accountant, so it lives in its own dedicated perm set (JournalWriter)
+  // that mirrors the legacy allow-list exactly.
+  // finance.bill.create is also intentionally NOT in FinanceOperator —
+  // the legacy requireFinanceOperator helper (used by
+  // POST /api/purchase/orders/:id/bill) only allows Owner, Admin,
+  // Accountant, so it lives in its own dedicated perm set (FinanceBillWriter)
   // that mirrors the legacy allow-list exactly. The rest of the
-  // FinanceOperator grants (read/update/post) are non-broad and stay here.
+  // FinanceOperator grants (read/update/post, bill.read, bill.update,
+  // payment.*, bank.*, tax.*, vat_return.*, budget.read, einvoice.*) are
+  // non-broad and stay here.
   FinanceOperator: {
     id: 'FinanceOperator',
     label: 'Finance Operator',
-    description: 'Day-to-day finance: invoices, bills, payments, bank, journal, tax.',
+    description: 'Day-to-day finance: invoices, bills (read/update), payments, bank, journal, tax. The two create perms the Wave 5 + Wave 7 narrow-grant workers split out (finance.journal.create, finance.bill.create) live in dedicated narrow perm sets (JournalWriter, FinanceBillWriter) so the catalog can mirror the legacy requireFinanceOperator allow-list exactly.',
     isSystem: true,
     permissions: Object.freeze([
       'finance.coa.read',
@@ -211,7 +218,6 @@ const PERMISSION_SETS = Object.freeze({
       'finance.invoice.update',
       'finance.invoice.issue',
       'finance.bill.read',
-      'finance.bill.create',
       'finance.bill.update',
       'finance.payment.read',
       'finance.payment.create',
@@ -333,14 +339,30 @@ const PERMISSION_SETS = Object.freeze({
   },
 
   // ─────────── Purchase sets ───────────
+  //
+  // The 8 perms the Wave 7 narrow-grant worker split out (purchase.vendor.read,
+  // purchase.vendor.create, purchase.po.read, purchase.po.create,
+  // purchase.po.update, purchase.receipt.create, purchase.return.create,
+  // purchase.analytics.read) are intentionally NOT in PurchaseOperator. They
+  // live in dedicated narrow perm sets (PurchaseVendorReader, PurchaseOrderReader,
+  // PurchaseAnalyticsReader, PurchaseVendorWriter, PurchaseOrderWriter,
+  // PurchaseReceiptWriter, PurchaseReturnWriter) granted only to the roles
+  // the legacy requirePurchaseReader / requirePurchaseWriter helpers allowed
+  // (Owner, Admin, Operator, Accountant, Auditor for the read perms;
+  // Owner, Admin, Operator, Accountant for the write perms). Without this
+  // split the PurchaseOperator grant would silently widen access beyond
+  // the legacy allow-list for the 8 purchase routes flagged in
+  // .orchestration/a1-erp-hy-wave7/wave7-plan.md. The rest of the
+  // PurchaseOperator grants (rfq.*, po.send, po.cancel, receipt.read,
+  // pricelist.*, vendor.update, vendor_360.read) are non-broad and stay
+  // here so FinanceLead / PurchaseLead / InventoryLead / Purchaser can
+  // still run their day-to-day purchase operations.
   PurchaseOperator: {
     id: 'PurchaseOperator',
     label: 'Purchase Operator',
-    description: 'RFQs, POs, receipts, returns, vendor master.',
+    description: 'RFQs, POs, receipts, returns, vendor master. The 8 perm keys the Wave 7 narrow-grant worker split out (vendor/po read+create+update+receipt+return+analytics) live in dedicated narrow perm sets so the catalog can mirror the legacy requirePurchaseReader / requirePurchaseWriter allow-lists exactly.',
     isSystem: true,
     permissions: Object.freeze([
-      'purchase.vendor.read',
-      'purchase.vendor.create',
       'purchase.vendor.update',
       'purchase.vendor_360.read',
       'purchase.rfq.read',
@@ -348,16 +370,10 @@ const PERMISSION_SETS = Object.freeze({
       'purchase.rfq.update',
       'purchase.rfq.delete',
       'purchase.rfq.send',
-      'purchase.po.read',
-      'purchase.po.create',
-      'purchase.po.update',
       'purchase.po.send',
       'purchase.po.cancel',
       'purchase.receipt.read',
-      'purchase.receipt.create',
-      'purchase.return.create',
       'purchase.pricelist.read',
-      'purchase.analytics.read',
     ]),
   },
   PurchaseAdmin: {
@@ -551,14 +567,22 @@ const PERMISSION_SETS = Object.freeze({
       'portal.document.read',
     ]),
   },
+  // ─────────── Portal / External ───────────
+  //
+  // purchase.po.read is intentionally NOT in PortalVendor — the legacy
+  // requirePurchaseReader helper (used by GET /api/purchase/orders) only
+  // allows Owner, Admin, Operator, Accountant, Auditor, so it lives in
+  // its own dedicated perm set (PurchaseOrderReader) that mirrors the
+  // legacy allow-list exactly. The rest of the PortalVendor grants
+  // (purchase.rfq.read) stay here so external vendors can still browse
+  // their RFQs in the portal.
   PortalVendor: {
     id: 'PortalVendor',
     label: 'Portal Vendor',
-    description: 'External vendor with portal access.',
+    description: 'External vendor with portal access. The purchase.po.read perm the Wave 7 narrow-grant worker split out lives in the dedicated PurchaseOrderReader perm set so the catalog can mirror the legacy requirePurchaseReader allow-list exactly.',
     isSystem: true,
     permissions: Object.freeze([
       'purchase.rfq.read',
-      'purchase.po.read',
     ]),
   },
 
@@ -1110,6 +1134,114 @@ const PERMISSION_SETS = Object.freeze({
     isSystem: true,
     permissions: Object.freeze([
       'system.integrations.read',
+    ]),
+  },
+
+  // ─────────── Wave 7 narrow grant sets ───────────
+  //
+  // These perm sets were added in Wave 7 (extract-purchase-narrow-sets) to
+  // collapse the 9 BROAD GRANT findings flagged by
+  // scripts/lint-rbac-broad-grants.js for the purchase + finance routes
+  // catalogued in server/rbac/helper-audit-map.json. Each set holds a
+  // single perm (or a tiny tightly-coupled pair, in the case of
+  // PurchaseOrderWriter which holds both `purchase.po.create` and
+  // `purchase.po.update`) and is granted only to the roles the legacy
+  // `requirePurchaseReader` / `requirePurchaseWriter` /
+  // `requireFinanceOperator` helpers allowed. This way the
+  // catalog-driven preHandler: requirePerm(...) migration can never
+  // silently widen access beyond the original allow-list.
+  //
+  // The relationship to the legacy allow-lists is:
+  //   PurchaseVendorReader    → requirePurchaseReader  (Owner, Admin, Operator, Accountant, Auditor) — GET /api/purchase/vendors
+  //   PurchaseOrderReader     → requirePurchaseReader  (Owner, Admin, Operator, Accountant, Auditor) — GET /api/purchase/orders
+  //   PurchaseAnalyticsReader → requirePurchaseReader  (Owner, Admin, Operator, Accountant, Auditor) — GET /api/purchase/analytics
+  //   PurchaseVendorWriter    → requirePurchaseWriter  (Owner, Admin, Operator, Accountant)             — POST /api/purchase/vendors
+  //   PurchaseOrderWriter     → requirePurchaseWriter  (Owner, Admin, Operator, Accountant)             — POST /api/purchase/orders, POST /api/purchase/orders/:id/confirm
+  //   PurchaseReceiptWriter   → requirePurchaseWriter  (Owner, Admin, Operator, Accountant)             — POST /api/purchase/orders/:id/receive
+  //   PurchaseReturnWriter    → requirePurchaseWriter  (Owner, Admin, Operator, Accountant)             — POST /api/purchase/orders/:id/return
+  //   FinanceBillWriter       → requireFinanceOperator (Owner, Admin, Accountant)                      — POST /api/purchase/orders/:id/bill
+  //
+  // Do not add extra perms or roles to these sets without re-running
+  // scripts/lint-rbac-broad-grants.js and re-locking the snapshot.
+
+  PurchaseVendorReader: {
+    id: 'PurchaseVendorReader',
+    label: 'Purchase Vendor Reader',
+    description: 'Read vendor master data. Narrow grant — Owner, Admin, Operator, Accountant, Auditor (mirrors the legacy requirePurchaseReader allow-list used by GET /api/purchase/vendors).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.vendor.read',
+    ]),
+  },
+
+  PurchaseOrderReader: {
+    id: 'PurchaseOrderReader',
+    label: 'Purchase Order Reader',
+    description: 'Read purchase orders. Narrow grant — Owner, Admin, Operator, Accountant, Auditor (mirrors the legacy requirePurchaseReader allow-list used by GET /api/purchase/orders).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.po.read',
+    ]),
+  },
+
+  PurchaseAnalyticsReader: {
+    id: 'PurchaseAnalyticsReader',
+    label: 'Purchase Analytics Reader',
+    description: 'Read purchase analytics / KPIs. Narrow grant — Owner, Admin, Operator, Accountant, Auditor (mirrors the legacy requirePurchaseReader allow-list used by GET /api/purchase/analytics).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.analytics.read',
+    ]),
+  },
+
+  PurchaseVendorWriter: {
+    id: 'PurchaseVendorWriter',
+    label: 'Purchase Vendor Writer',
+    description: 'Create vendor master records. Narrow grant — Owner, Admin, Operator, Accountant (mirrors the legacy requirePurchaseWriter allow-list used by POST /api/purchase/vendors).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.vendor.create',
+    ]),
+  },
+
+  PurchaseOrderWriter: {
+    id: 'PurchaseOrderWriter',
+    label: 'Purchase Order Writer',
+    description: 'Create and update purchase orders. Narrow grant — Owner, Admin, Operator, Accountant (mirrors the legacy requirePurchaseWriter allow-list used by POST /api/purchase/orders and POST /api/purchase/orders/:id/confirm).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.po.create',
+      'purchase.po.update',
+    ]),
+  },
+
+  PurchaseReceiptWriter: {
+    id: 'PurchaseReceiptWriter',
+    label: 'Purchase Receipt Writer',
+    description: 'Record purchase order receipts. Narrow grant — Owner, Admin, Operator, Accountant (mirrors the legacy requirePurchaseWriter allow-list used by POST /api/purchase/orders/:id/receive).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.receipt.create',
+    ]),
+  },
+
+  PurchaseReturnWriter: {
+    id: 'PurchaseReturnWriter',
+    label: 'Purchase Return Writer',
+    description: 'Create purchase returns. Narrow grant — Owner, Admin, Operator, Accountant (mirrors the legacy requirePurchaseWriter allow-list used by POST /api/purchase/orders/:id/return).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'purchase.return.create',
+    ]),
+  },
+
+  FinanceBillWriter: {
+    id: 'FinanceBillWriter',
+    label: 'Finance Bill Writer',
+    description: 'Create supplier bills. Narrow grant — Owner, Admin, Accountant (mirrors the legacy requireFinanceOperator allow-list used by POST /api/purchase/orders/:id/bill).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'finance.bill.create',
     ]),
   },
 });
