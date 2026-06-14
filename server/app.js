@@ -4601,16 +4601,28 @@ ${controls}
 
 function registerStatic(app) {
   const publicDir = path.join(__dirname, "..", "public");
-  if (fs.existsSync(path.join(publicDir, "index.html"))) {
+  const indexPath = path.join(publicDir, "index.html");
+  const hasIndex = fs.existsSync(indexPath);
+  if (hasIndex) {
     app.register(fastifyStatic, { root: publicDir });
-    app.setNotFoundHandler((request, reply) => {
-      if (request.raw.url.startsWith("/api/")) {
-        reply.code(404).send({ ok: false, error: "NOT_FOUND" });
-        return;
-      }
-      reply.sendFile("index.html");
-    });
   }
+  // Always install a sanitizing 404 handler. Without it, Fastify's default
+  // handler echoes the request URL (e.g. a path param containing a secret
+  // token) into the JSON error body, which leaks sensitive substrings and
+  // breaks tests that assert the body is free of untrusted input. For
+  // non-/api/* requests we still return 200 with the SPA entry point so the
+  // dashboard launcher can deep-link into /app/:id without a 404.
+  app.setNotFoundHandler((request, reply) => {
+    if (request.raw.url.startsWith("/api/")) {
+      reply.code(404).send({ ok: false, error: "NOT_FOUND" });
+      return;
+    }
+    if (hasIndex) {
+      reply.sendFile("index.html");
+      return;
+    }
+    reply.code(200).type("text/html").send("<!doctype html><title>A1 Suite</title>");
+  });
 }
 
 function bearerToken(value) {
