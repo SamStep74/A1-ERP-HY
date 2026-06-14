@@ -17,7 +17,7 @@
  *   - summarizeScope(scope)                   → "SalesRep: 3 tools, 2 sources,
  *                                                 4K tokens, no MFA"
  *
- * Owner escape hatch: when `user.role === 'Owner'`, the scope is unbounded
+ * Owner escape hatch: when the user is the Owner role, the scope is unbounded
  * regardless of permission sets. The matrix in `server/rbac/guards.js`
  * already grants Owner every key implicitly — this branch exists to express
  * the contract in the resolver so future readers don't have to chase the
@@ -163,6 +163,10 @@ function resolveCopilotScope(user, requestBody) {
   const permissionKeys = rbac.resolveEffectivePermissions(safeUser);
 
   // ── Owner: unbounded scope ─────────────────────────────────────
+  // rbac-lint: allow-role-check — Owner has the canonical implicit-all
+  // shortcut (see server/rbac/guards.js:58). The catalog still has
+  // explicit keys for every other role's access; this branch only
+  // short-circuits Owner's own governance.
   if (safeUser && safeUser.role === "Owner") {
     return {
       role: "Owner",
