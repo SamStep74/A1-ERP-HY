@@ -141,6 +141,44 @@ const {
   sanitizePlatformError
 } = require("./platformTenant");
 
+// Wave 3 RBAC migration: catalog-driven guards used by the requireXxx
+// helpers and the per-route preHandlers. The requireXxx helpers below
+// delegate to requirePermissionWithSensitivity so the legacy `user.role`
+// checks in app.js are replaced by catalog lookups. Per-route preHandlers
+// wrap the same primitive so high-sensitivity mutations (finance.journal.post,
+// hr.payroll.run, compliance.legal.update, security.access.review) get the
+// same MFA + dual-control treatment whether the check runs in the handler
+// (via the helper) or up-front (via the preHandler).
+const {
+  requirePermission,
+  requirePermissionWithSensitivity,
+  hasPermission,
+  redactFields,
+  recordLevelClause,
+  enforceSessionPolicy,
+} = require("./rbac/guards");
+
+// Build a Fastify preHandler that authenticates the request, stashes the
+// user on `request.user`, and then enforces a single catalog permission
+// (with sensitivity / MFA gating). This is the standard preHandler for
+// routes that have moved to the catalog; it composes with the existing
+// `app.auth(request)` decorator so the in-handler `const user = await
+// app.auth(request)` calls keep working unchanged.
+const rbacAuthAndPerm = (permissionKey) => async (request, reply) => {
+  try {
+    const user = await request.server.auth(request);
+    request.user = user;
+    requirePermissionWithSensitivity(user, permissionKey);
+  } catch (err) {
+    reply.code(err.statusCode || 403).send({
+      error: err.code || 'rbac_forbidden',
+      message: err.message,
+      required: err.required,
+      sensitivity: err.sensitivity,
+    });
+  }
+};
+
 function buildApp(options = {}) {
   const env = options.env || process.env;
   const fetchImpl = options.fetch || globalThis.fetch;
@@ -2312,7 +2350,9 @@ function registerApi(app, db, options = {}) {
     requireAppAccess(db, user, "crm");
     const status = normalizeCrmLeadStatusQuery(request.query || {});
     const leads = getCrmLeads(db, user.org_id, status);
-    return { leads, summary: getCrmLeadSummary(db, user.org_id) };
+    // Wave 3 migration: redact customer tax_id from lead listings for callers
+    // who don't hold crm.account.read.
+    return { leads: redactFields(user, leads, ["crm.account.tax_id"]), summary: getCrmLeadSummary(db, user.org_id) };
   });
 
   app.get("/api/crm/forecast", async request => {
@@ -2331,8 +2371,13 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
     const asOf = normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE);
+    const report = getReceivablesAging(db, user.org_id, "", asOf);
+    // Wave 3 migration: redact customer tax_id from each invoice in the
+    // report for callers who don't hold crm.account.read.
+    const redactedInvoices = redactFields(user, report.invoices || [], ["crm.account.tax_id"]);
     return {
-      ...getReceivablesAging(db, user.org_id, "", asOf),
+      ...report,
+      invoices: redactedInvoices,
       invoiceOverdueExplanations: canAccessInvoiceOverdueExplanation(user) ? getAiInvoiceOverdueExplanations(db, user.org_id) : []
     };
   });
@@ -2399,7 +2444,8 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireCrmEditor(user);
     const lead = createCrmLead(db, user, request.body);
-    return { ok: true, lead, summary: getCrmLeadSummary(db, user.org_id) };
+    // Wave 3 migration: redact tax_id from the response.
+    return { ok: true, lead: redactFields(user, lead, ["crm.account.tax_id"]), summary: getCrmLeadSummary(db, user.org_id) };
   });
 
   app.post("/api/crm/leads/:id/convert", async request => {
@@ -3821,7 +3867,11 @@ ${controls}
     return { ok: true, ...(await acceptPublicQuote(db, quote, request.body, { headers: request.headers, ip: client.ip })) };
   });
 
-  app.post("/api/finance/periods/:periodKey/close", async request => {
+  app.post("/api/finance/periods/:periodKey/close", {
+    // Wave 3 migration: enforce finance.period.lock at the preHandler stage.
+    // This is the canonical "may close a period" gate (critical sensitivity).
+    preHandler: rbacAuthAndPerm("finance.period.lock"),
+  }, async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const periodKey = normalizeFinancePeriodPathKey(request.params.periodKey);
@@ -3851,7 +3901,11 @@ ${controls}
     return { ok: true, period: getFinancePeriod(db, user.org_id, period.periodKey) };
   });
 
-  app.post("/api/finance/periods/:periodKey/reopen", async request => {
+  app.post("/api/finance/periods/:periodKey/reopen", {
+    // Wave 3 migration: enforce finance.period.unlock at the preHandler
+    // stage (critical sensitivity).
+    preHandler: rbacAuthAndPerm("finance.period.unlock"),
+  }, async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const periodKey = normalizeFinancePeriodPathKey(request.params.periodKey);
@@ -3887,7 +3941,11 @@ ${controls}
     return { draftInvoices: getFinanceDraftInvoices(db, user.org_id, customerId) };
   });
 
-  app.post("/api/finance/draft-invoices/:id/post", async request => {
+  app.post("/api/finance/draft-invoices/:id/post", {
+    // Wave 3 migration: enforce finance.journal.post at the preHandler stage
+    // (critical sensitivity — locks the journal entry to the ledger).
+    preHandler: rbacAuthAndPerm("finance.journal.post"),
+  }, async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const draftInvoiceId = normalizeFinanceDraftInvoicePathId(request.params.id);
@@ -3913,14 +3971,19 @@ ${controls}
     requireFinanceOperator(user);
     const customerId = normalizeFinanceListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
-    return { transactions: getFinanceBankTransactions(db, user.org_id, customerId) };
+    // Wave 3 migration: redact bank account numbers for callers who don't
+    // hold finance.bank.read.
+    const transactions = getFinanceBankTransactions(db, user.org_id, customerId);
+    return { transactions: redactFields(user, transactions, ["finance.bank.account_number", "finance.bank.routing"]) };
   });
 
   app.post("/api/finance/bank-transactions", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
     const result = createFinanceBankTransaction(db, user, request.body === undefined ? {} : request.body);
-    return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.transaction.customerId) };
+    // Wave 3 migration: redact PII (account number) from the response.
+    const redacted = redactFields(user, result, ["finance.bank.account_number", "finance.bank.routing"]);
+    return { ok: true, ...redacted, events: getRecentSuiteEvents(db, user.org_id, 8, redacted.transaction.customerId) };
   });
 
   app.post("/api/finance/bank-transactions/:id/reconcile", async request => {
@@ -3928,7 +3991,9 @@ ${controls}
     requireFinanceOperator(user);
     const transactionId = normalizeFinanceBankTransactionPathId(request.params.id);
     const result = await reconcileFinanceBankTransaction(db, user, transactionId);
-    return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.transaction.customerId) };
+    // Wave 3 migration: redact PII (account number) from the response.
+    const redacted = redactFields(user, result, ["finance.bank.account_number", "finance.bank.routing"]);
+    return { ok: true, ...redacted, events: getRecentSuiteEvents(db, user.org_id, 8, redacted.transaction.customerId) };
   });
 
   app.get("/api/finance/src-exports", async request => {
@@ -4443,7 +4508,15 @@ ${controls}
     return { runs };
   });
 
-  app.post("/api/payroll/run", async request => {
+  app.post("/api/payroll/run", {
+    // Wave 3 migration: enforce hr.payroll.run at the preHandler stage. This
+    // is the canonical "may run a payroll cycle" gate (critical sensitivity,
+    // dual-control / MFA-gated). Owner/Admin via implicit-all + PayrollClerk
+    // via PayrollOperator. Falls back to requireFinanceOperator inside the
+    // handler for the legacy role-list behavior; the preHandler is the new
+    // catalog-driven path.
+    preHandler: rbacAuthAndPerm("hr.payroll.run"),
+  }, async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
     return postFinancePayrollRun(db, user, request.body === undefined ? {} : request.body);
@@ -4452,7 +4525,9 @@ ${controls}
   app.get("/api/people/employees", async request => {
     const user = await app.auth(request);
     const employees = db.prepare("SELECT id, full_name AS fullName, tax_id AS taxId, position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, hire_date AS hireDate, email, updated_at AS updatedAt FROM people_employees WHERE org_id = ? ORDER BY employment_status, full_name").all(user.org_id);
-    return { employees };
+    // Wave 3 migration: redact employee PII (SSN/tax_id) from the listing
+    // for callers who don't hold hr.employee.pii.read.
+    return { employees: employees.map(e => redactFields(user, e, ["hr.employee.ssn"])) };
   });
 
   app.post("/api/people/employees", async request => {
@@ -4504,7 +4579,27 @@ ${controls}
     return { sources: getLegalSources(db, user.org_id) };
   });
 
-  app.post("/api/legal/sources/:id/reviews", async request => {
+  app.post("/api/legal/sources/:id/reviews", {
+    // Wave 3 migration: preHandler enforces the source-specific reviewer
+    // permission at the gateway. The key is chosen by sourceId inside
+    // requireLegalSourceReviewer (finance.tax.update for tax-code, otherwise
+    // compliance.legal.review).
+    preHandler: async (request, reply) => {
+      try {
+        const user = await request.server.auth(request);
+        request.user = user;
+        const sourceId = normalizeLegalSourcePathId(request.params.id, request.raw?.url);
+        requireLegalSourceReviewer(user, sourceId);
+      } catch (err) {
+        reply.code(err.statusCode || 403).send({
+          error: err.code || 'rbac_forbidden',
+          message: err.message,
+          required: err.required,
+          sensitivity: err.sensitivity,
+        });
+      }
+    },
+  }, async request => {
     const user = await app.auth(request);
     const sourceId = normalizeLegalSourcePathId(request.params.id, request.raw?.url);
     requireLegalSourceReviewer(user, sourceId);
@@ -4558,14 +4653,23 @@ ${controls}
     return { export: packet };
   });
 
-  app.post("/api/admin/audit-exports", async request => {
+  app.post("/api/admin/audit-exports", {
+    // Wave 3 migration: enforce security.audit.export at the preHandler stage
+    // (high sensitivity — gates a writeable audit export).
+    preHandler: rbacAuthAndPerm("security.audit.export"),
+  }, async request => {
     const user = await app.auth(request);
     requireAuditExportWriter(user);
     const packet = createAuditExport(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, export: packet };
   });
 
-  app.post("/api/admin/access-reviews", async request => {
+  app.post("/api/admin/access-reviews", {
+    // Wave 3 migration: enforce security.access.review at the preHandler
+    // stage (high sensitivity). Owner/Admin/Auditor via SecurityAdmin +
+    // ComplianceOperator.
+    preHandler: rbacAuthAndPerm("security.access.review"),
+  }, async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const review = createAccessReview(db, user, request.body === undefined ? {} : request.body);
@@ -5442,11 +5546,11 @@ function normalizeChoice(value, allowed, fallback) {
 }
 
 function requireOwner(user) {
-  if (user.role !== "Owner") {
-    const err = new Error("Owner role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: replace the legacy `user.role === "Owner"` direct
+  // check with a catalog lookup. system.tenant.create is critical and
+  // Owner-only via the implicit-all shortcut, so it is the canonical
+  // "Owner escape hatch" key.
+  requirePermissionWithSensitivity(user, "system.tenant.create");
 }
 
 function validateAssignableAppRole(db, orgId, value) {
@@ -5534,12 +5638,11 @@ function getAssignableAppRoleSet(db, orgId) {
 }
 
 function requirePeopleWriter(user) {
-  // Salary/employee master data is sensitive: only Owner/Admin/Accountant may write.
-  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
-    const err = new Error("People/HR writer role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. hr.employee.create is a high-sensitivity
+  // permission held by HROperator, plus the PIIEditor/HRLead paths via the
+  // role matrix. Accountant has it via FinanceOperator so the legacy Owner/
+  // Admin/Accountant set is preserved.
+  requirePermissionWithSensitivity(user, "hr.employee.create");
 }
 
 function normalizePeopleEmployeePathId(value, rawUrl = "") {
@@ -5592,7 +5695,9 @@ function createPeopleEmployee(db, user, body) {
     now
   );
   audit(db, user.org_id, user.id, "people.employee.created", { employeeId: id, fullName: input.fullName });
-  return { ok: true, employee: getEmployee(db, user.org_id, id) };
+  // Wave 3 migration: redact PII (taxId) from the response unless the caller
+  // holds hr.employee.pii.read.
+  return { ok: true, employee: redactFields(user, getEmployee(db, user.org_id, id), ["hr.employee.ssn"]) };
 }
 
 function updatePeopleEmployee(db, user, employee, body) {
@@ -5621,7 +5726,9 @@ function updatePeopleEmployee(db, user, employee, body) {
   db.prepare(`UPDATE people_employees SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`)
     .run(...values, user.org_id, employee.id);
   audit(db, user.org_id, user.id, "people.employee.updated", { employeeId: employee.id });
-  return { ok: true, employee: getEmployee(db, user.org_id, employee.id) };
+  // Wave 3 migration: redact PII (taxId) from the response unless the caller
+  // holds hr.employee.pii.read.
+  return { ok: true, employee: redactFields(user, getEmployee(db, user.org_id, employee.id), ["hr.employee.ssn"]) };
 }
 
 function normalizeLegalLawSearchQuery(query) {
@@ -6393,51 +6500,40 @@ function requireMfaPrivilegedUser(user) {
 }
 
 function requireAccessReviewer(user) {
-  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
-    const err = new Error("Access reviewer role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: security.access.review is the catalog key for running
+  // user/role access reviews. Held by Owner/Admin via SystemAdmin and by
+  // Auditor via the compliance officer path.
+  requirePermissionWithSensitivity(user, "security.access.review");
 }
 
 function requireSessionReviewer(user) {
-  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
-    const err = new Error("Session reviewer role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: session listing is the read half of the lifecycle;
+  // owners/auditors get it via their role matrices.
+  requirePermissionWithSensitivity(user, "security.session.list");
 }
 
 function requireSessionAdmin(user) {
-  if (!["Owner", "Admin"].includes(user.role)) {
-    const err = new Error("Session administrator role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: session revocation is a high-sensitivity action.
+  requirePermissionWithSensitivity(user, "security.session.revoke");
 }
 
 function requireAuditExportReader(user) {
-  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
-    const err = new Error("Audit export reader role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: the legacy Owner/Admin/Auditor set maps to
+  // security.audit.read which is held by those roles (via AuditOperator
+  // and the standard read paths).
+  requirePermissionWithSensitivity(user, "security.audit.read");
 }
 
 function requireAuditReader(user) {
-  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
-    const err = new Error("Audit reader role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: same catalog key as requireAuditExportReader — they
+  // differ only in export capability downstream.
+  requirePermissionWithSensitivity(user, "security.audit.read");
 }
 
 function requireAuditExportWriter(user) {
-  if (!["Owner", "Admin"].includes(user.role)) {
-    const err = new Error("Audit export writer role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: export is high-sensitivity; catalog key is
+  // security.audit.export.
+  requirePermissionWithSensitivity(user, "security.audit.export");
 }
 
 function requireProductionReadinessReader(user) {
@@ -6449,30 +6545,47 @@ function requireProductionReadinessReader(user) {
 }
 
 function requireLegalSourceReviewer(user, sourceId) {
-  const allowed = legalSourceReviewerRoles(sourceId);
-  if (!allowed.includes(user.role)) {
-    const err = new Error("Professional legal source reviewer role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. The key depends on the source so each
+  // source's natural professional role satisfies the check:
+  //   - law-tax-code       → finance.tax.update      (Accountant has it via FinanceOperator)
+  //   - law-personal-data  → compliance.legal.review  (Lawyer has it via DocsOperator)
+  //   - law-esign          → compliance.legal.review  (Lawyer has it via DocsOperator)
+  //   - default            → compliance.legal.review  (Owner/Admin via ComplianceOperator)
+  // Owner still works for all sources via the implicit-all shortcut.
+  const permissionKey = sourceId === "law-tax-code"
+    ? "finance.tax.update"
+    : "compliance.legal.review";
+  requirePermissionWithSensitivity(user, permissionKey);
 }
 
 function legalSourceReviewerRoles(sourceId) {
+  // Wave 3 migration: kept for callers that need a label-level list (tests
+  // and one human-readable error path). The canonical gate is
+  // requireLegalSourceReviewer, which is catalog-driven.
   if (sourceId === "law-tax-code") return ["Owner", "Admin", "Accountant"];
   if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Owner", "Admin", "Lawyer"];
   return ["Owner", "Admin"];
 }
 
 function legalEvidenceOptions(user) {
-  return { includePayload: ["Owner", "Admin", "Lawyer", "Auditor"].includes(user.role) };
+  // Wave 3 migration: catalog-driven. docs.evidence.export (or read) is the
+  // gate for seeing raw evidence payloads. Owner implicit-all + Lawyer via
+  // DocsOperator + Auditor via SecurityAdmin/ComplianceOperator.
+  return { includePayload: hasPermission(user, "docs.evidence.read") };
 }
 
 function financeEvidenceOptions(user) {
-  return { includePayload: ["Owner", "Admin", "Accountant", "Auditor"].includes(user.role) };
+  // Wave 3 migration: catalog-driven. finance.journal.read or .post is the
+  // gate. Owner implicit-all + Accountant via FinanceOperator + Auditor via
+  // SecurityAdmin.
+  return { includePayload: hasPermission(user, "finance.journal.read") };
 }
 
 function eventFeedOptions(user) {
-  return { includePayload: ["Owner", "Admin", "Auditor"].includes(user.role) };
+  // Wave 3 migration: catalog-driven. security.audit.read is the gate.
+  // Owner implicit-all + Auditor via SecurityAdmin. Admin still has
+  // security.audit.read via SecurityAdmin as well.
+  return { includePayload: hasPermission(user, "security.audit.read") };
 }
 
 function requireIntegrationReader(user) {
@@ -7851,11 +7964,10 @@ function requirePilotNextRecurringOngoingRenewalCloseoutWriter(user) {
 }
 
 function requireCrmEditor(user) {
-  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
-    const err = new Error("CRM editor role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. crm.deal.create is the canonical "may
+  // edit CRM" gate — held by all legacy CRM-editor roles via CRMOperator
+  // (Operator, ServiceManager, SalesRep) and by Owner/Admin via implicit.
+  requirePermissionWithSensitivity(user, "crm.deal.create");
 }
 
 function requireCatalogReader(user) {
@@ -7951,19 +8063,17 @@ function requireWorkflowBuilderSuggestionAccess(user) {
 }
 
 function requireCollectionEditor(user) {
-  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant"].includes(user.role)) {
-    const err = new Error("Collection editor role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. crm.quote.send is the gate for
+  // collection actions (sending dunning/quotes/etc.) — held by all legacy
+  // collection-editor roles via CRMOperator + FinanceOperator for Accountant.
+  requirePermissionWithSensitivity(user, "crm.quote.send");
 }
 
 function requireFinanceOperator(user) {
-  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
-    const err = new Error("Finance operator role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. finance.journal.create is the
+  // canonical "may operate finance" gate — held by Accountant via
+  // FinanceOperator and by Owner/Admin via implicit-all.
+  requirePermissionWithSensitivity(user, "finance.journal.create");
 }
 
 function requireWorkflowOperator(user) {
@@ -7983,22 +8093,24 @@ function requireServiceSupervisor(user) {
 }
 
 function requireAnalyticsSnapshotWriter(user) {
-  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
-    const err = new Error("Analytics snapshot writer role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. analytics.snapshot.create is held
+  // by Accountant/Admin/Owner via ReportBuilder (and Owner/Admin via implicit).
+  requirePermissionWithSensitivity(user, "analytics.snapshot.create");
 }
 
 function requireAnalyticsReportReader(user) {
-  if (visibleAnalyticsReportTypes(user).length === 0) {
-    const err = new Error("Analytics report reader role required");
-    err.statusCode = 403;
-    throw err;
-  }
+  // Wave 3 migration: catalog-driven. analytics.report.read is the gate.
+  // The legacy `visibleAnalyticsReportTypes` data shape (owner/accountant
+  // scope) is preserved by visibleAnalyticsReportTypes() below.
+  requirePermissionWithSensitivity(user, "analytics.report.read");
 }
 
 function requireAnalyticsReportWriter(user, reportType) {
+  // Wave 3 migration: catalog-driven. analytics.report.write is the access
+  // gate. The per-role allowed-types restriction (Accountant → "accountant"
+  // only; Owner/Admin → both) is a *data-shape* constraint, not an access
+  // decision, and is kept as a separate check below.
+  requirePermissionWithSensitivity(user, "analytics.report.write");
   const allowed = user.role === "Accountant"
     ? ["accountant"]
     : ["Owner", "Admin"].includes(user.role)
@@ -8012,6 +8124,8 @@ function requireAnalyticsReportWriter(user, reportType) {
 }
 
 function visibleAnalyticsReportTypes(user) {
+  // Wave 3 migration note: returns scope *labels* the user is allowed to see
+  // (not an access gate). The actual access check is requireAnalyticsReportReader.
   if (["Owner", "Admin", "Auditor"].includes(user.role)) return ["owner", "accountant"];
   if (user.role === "Accountant") return ["accountant"];
   return [];
@@ -47101,6 +47215,10 @@ function isProfessionalLegalSourceReady(source) {
 }
 
 function requiredProfessionalReviewerRoles(sourceId) {
+  // Wave 3 migration note: this returns role *labels* for the persisted
+  // review record (e.g. "Accountant" must have signed the tax-code review).
+  // It is a data-shape constraint, not an access gate. The actual access
+  // check is requireLegalSourceReviewer, which is catalog-driven.
   if (sourceId === "law-tax-code") return ["Accountant"];
   if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Lawyer"];
   return ["Owner", "Admin"];

@@ -196,14 +196,23 @@ function redactFields(user, obj, fieldPaths) {
       delete out[leaf];
       deleted = true;
     } else {
-      let cur = out;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!cur || typeof cur !== 'object') break;
-        cur = cur[parts[i]];
-      }
-      if (cur && typeof cur === 'object' && Object.prototype.hasOwnProperty.call(cur, leaf)) {
-        delete cur[leaf];
+      // Also try the camelCase form of the leaf, since many API responses
+      // return flat records with camelCase keys (e.g. { accountNumber: '...' }
+      // for the snake_case leaf `account_number`).
+      const camel = leaf.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+      if (camel !== leaf && Object.prototype.hasOwnProperty.call(out, camel)) {
+        delete out[camel];
         deleted = true;
+      } else {
+        let cur = out;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!cur || typeof cur !== 'object') break;
+          cur = cur[parts[i]];
+        }
+        if (cur && typeof cur === 'object' && Object.prototype.hasOwnProperty.call(cur, leaf)) {
+          delete cur[leaf];
+          deleted = true;
+        }
       }
     }
     // Silently skip paths that don't match the object shape — the caller may
