@@ -6931,10 +6931,57 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_access_review_packets_org
       ON access_review_packets(org_id, created_at DESC);
+
+    -- Armenia administrative-region (marz) reference table. Wave 6 deliverable.
+    -- 11 marzes + Yerevan city. Stable ISO 3166-2:AM codes; trilingual labels (hy/ru/en)
+    -- so the same row powers locale-aware dropdowns, address forms, and analytics. This
+    -- table is GLOBAL (no org_id): regions are a public, country-level reference, not
+    -- tenant data. Seeded once via INSERT OR IGNORE inside initSchema (idempotent).
+    CREATE TABLE IF NOT EXISTS arm_regions (
+      code TEXT PRIMARY KEY,
+      name_hy TEXT NOT NULL,
+      name_ru TEXT NOT NULL,
+      name_en TEXT NOT NULL,
+      iso_code TEXT NOT NULL,
+      parent_code TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_arm_regions_parent
+      ON arm_regions(parent_code);
+    CREATE INDEX IF NOT EXISTS idx_arm_regions_name_en
+      ON arm_regions(name_en);
+    CREATE INDEX IF NOT EXISTS idx_arm_regions_name_hy
+      ON arm_regions(name_hy);
   `);
 }
 
+const ARM_REGIONS_SEED = Object.freeze([
+  { code: "AM-ER", name_hy: "Երևան", name_ru: "Ереван", name_en: "Yerevan", iso_code: "AM-ER", parent_code: null },
+  { code: "AM-AG", name_hy: "Արագածոտն", name_ru: "Арагацотн", name_en: "Aragatsotn", iso_code: "AM-AG", parent_code: null },
+  { code: "AM-AR", name_hy: "Արարատ", name_ru: "Арарат", name_en: "Ararat", iso_code: "AM-AR", parent_code: null },
+  { code: "AM-AV", name_hy: "Արմավիր", name_ru: "Армавир", name_en: "Armavir", iso_code: "AM-AV", parent_code: null },
+  { code: "AM-GR", name_hy: "Գեղարքունիք", name_ru: "Гегаркуник", name_en: "Gegharkunik", iso_code: "AM-GR", parent_code: null },
+  { code: "AM-KT", name_hy: "Կոտայք", name_ru: "Котайк", name_en: "Kotayk", iso_code: "AM-KT", parent_code: null },
+  { code: "AM-LO", name_hy: "Լոռի", name_ru: "Лори", name_en: "Lori", iso_code: "AM-LO", parent_code: null },
+  { code: "AM-SH", name_hy: "Շիրակ", name_ru: "Ширак", name_en: "Shirak", iso_code: "AM-SH", parent_code: null },
+  { code: "AM-SU", name_hy: "Սյունիք", name_ru: "Сюник", name_en: "Syunik", iso_code: "AM-SU", parent_code: null },
+  { code: "AM-TV", name_hy: "Տավուշ", name_ru: "Тавуш", name_en: "Tavush", iso_code: "AM-TV", parent_code: null },
+  { code: "AM-VD", name_hy: "Վայոց Ձոր", name_ru: "Вайоцдзор", name_en: "Vayots Dzor", iso_code: "AM-VD", parent_code: null }
+]);
+
+// Idempotent seeder for arm_regions. Safe to call on every openDatabase(): INSERT OR
+// IGNORE is a no-op when the row already exists. Public surface (exported in __test)
+// so the test can re-seed and verify the row count without re-opening the DB.
+function seedArmRegions(db) {
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO arm_regions (code, name_hy, name_ru, name_en, iso_code, parent_code)
+    VALUES (@code, @name_hy, @name_ru, @name_en, @iso_code, @parent_code)
+  `);
+  for (const row of ARM_REGIONS_SEED) stmt.run(row);
+}
+
 function seedIfEmpty(db) {
+  seedArmRegions(db);
   const count = db.prepare("SELECT COUNT(*) AS count FROM organizations").get().count;
   if (count > 0) return;
 
@@ -8797,6 +8844,7 @@ module.exports = {
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,
+    seedArmRegions,
     seedInventoryCore
   }
 };
