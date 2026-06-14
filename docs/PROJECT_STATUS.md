@@ -399,16 +399,16 @@ silently widens the role set for a perm key fails
    them first, so a future wave that migrates the inline routes
    doesn't have to re-derive the intent from git history.
 
-## Wave 6 — Phase 0 of ERP plan (IN FLIGHT)
+## Wave 6 — Phase 0 of ERP plan (COMPLETE + PUSHED)
 
 Three workers in tmux session `a1-erp-hy-wave6`, launched at
 2026-06-14T10:51:32Z (PIDs 92139 / 92282 / 92370):
 
-| Worker | Scope | Deliverable |
-|---|---|---|
-| `add-armenian-product-fields` | `catalog_items` + `catalog_item_variants` | Armenian/Russian/English names, SKU, barcode, vat_class, excise_marker, fiscal_receipt_category, arm_region_of_origin. CHECK constraints + 10 tests. |
-| `add-sales-order-primitives` | `sales_orders` + `sales_order_lines` | Fulfillment + billing status enums, 9 endpoints with `sales.order.*` perm keys, order_number generator, 10 tests. |
-| `expand-localization-dict` | `arm_regions` + label dictionary | 12 marzes + Yerevan city seeded; product/order/excise/fiscal label keys (hy, ru, en); `getLocalizedLabel(key, locale)`; 10 tests. |
+| Worker | Scope | Deliverable | Result |
+|---|---|---|---|
+| `add-armenian-product-fields` | `catalog_items` + `catalog_item_variants` | Armenian/Russian/English names, SKU, barcode, vat_class, excise_marker, fiscal_receipt_category, arm_region_of_origin. CHECK constraints + 10 tests. | Merged `33feea7` |
+| `add-sales-order-primitives` | `sales_orders` + `sales_order_lines` | Fulfillment + billing status enums, 9 endpoints with `sales.order.*` perm keys, order_number generator, 10 tests. | Merged `eb1e1cb` (salvaged — agent exited 0 on socket close) |
+| `expand-localization-dict` | `arm_regions` + label dictionary | 12 marzes + Yerevan city seeded; product/order/excise/fiscal label keys (hy, ru, en); `getLocalizedLabel(key, locale)`; 10 tests. | Merged `66131d0` (salvaged — same socket-close mode) |
 
 **Goal of Wave 6:** ship the Phase 0 foundation — Armenian product
 master, sales-order lifecycle, multilingual label dictionary — that
@@ -416,7 +416,32 @@ the rest of the ERP plan (Phase 1 inventory, Phase 2 purchasing,
 etc.) builds on. Independent of the RBAC work and of each other;
 3 workers in parallel.
 
-## Wave 7 — Planned (narrow 23 BROAD GRANTs)
+**Outcome:** 2 of 3 workers hit a backend API socket-close error and
+exited cleanly (code 0) without committing — the work was in the
+worktrees, intact. Salvaged by manual commit + rebase + octopus
+merge. Discovered and fixed a critical regression introduced by the
+Wave 5 merge resolution: the `registerStatic` sanitizing-404 fix
+from `04fecab` was overwritten when `5fe888a` was merged on top.
+Re-applied in `89a4fd6` (already pushed pre-Wave-6). Then a second
+regression was caught: a SQL comment in the sales-order worker's
+`initSchema` additions used backticks (`` ` ``) inside a JavaScript
+template literal, prematurely closing it and breaking all 233 tests
+with a cryptic `SyntaxError: missing ) after argument list`. Fixed
+in `e985b43` (single line — backticks removed from the comment).
+
+**Post-Wave-6 verification (on `6529b3e`):**
+- `node --test test/api.test.js` → 233/233 pass
+- `node --test test/rbac.test.js` → 74/74 pass
+- `node scripts/lint-rbac-broad-grants.js` → 16 PASS / 23 BROAD / 9 NO LEGACY / 0 UNKNOWN
+
+Pushed `33feea7..6529b3e` to `origin/main`.
+
+## Wave 7 — In flight (narrow 23 BROAD GRANTs)
+
+Launched at 2026-06-14T15:46Z in tmux session `a1-erp-hy-wave7`
+(4 windows: `main` orchestrator + 3 workers). Workers branched
+off `origin/main` at `6529b3e` into isolated worktrees under
+`.claude/worktrees/`.
 
 Detailed plan lives at
 [.orchestration/a1-erp-hy-wave7/wave7-plan.md](../.orchestration/a1-erp-hy-wave7/wave7-plan.md).
