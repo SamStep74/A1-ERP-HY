@@ -1,10 +1,10 @@
 {
   "version": 1,
   "capturedAt": "LOCKED",
-  "note": "This is the lock-in snapshot for scripts/lint-rbac-broad-grants.js. Regenerate with: node scripts/lint-rbac-broad-grants.js --json | jq ... (see scripts/snapshot-catalog-grant-audit.js).",
+  "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 5,
-    "broad": 10,
+    "pass": 15,
+    "broad": 0,
     "no-legacy": 23,
     "unknown-key": 10,
     "total": 48
@@ -23,7 +23,7 @@
       "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requirePeopleWriter",
       "permKey": "hr.employee.create",
       "expectedRoles": [
@@ -32,20 +32,14 @@
         "Accountant"
       ],
       "actualRoles": [
+        "Accountant",
         "Admin",
-        "HRLead",
-        "HRSpecialist",
-        "Owner",
-        "PayrollClerk"
+        "Owner"
       ],
-      "extraRoles": [
-        "HRLead",
-        "HRSpecialist",
-        "PayrollClerk"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireAccessReviewer",
       "permKey": "security.access.review",
       "expectedRoles": [
@@ -56,19 +50,12 @@
       "actualRoles": [
         "Admin",
         "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead",
         "Owner"
       ],
-      "extraRoles": [
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireSessionReviewer",
       "permKey": "security.session.list",
       "expectedRoles": [
@@ -79,19 +66,12 @@
       "actualRoles": [
         "Admin",
         "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead",
         "Owner"
       ],
-      "extraRoles": [
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireSessionAdmin",
       "permKey": "security.session.revoke",
       "expectedRoles": [
@@ -100,21 +80,12 @@
       ],
       "actualRoles": [
         "Admin",
-        "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead",
         "Owner"
       ],
-      "extraRoles": [
-        "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireAuditExportReader",
       "permKey": "security.audit.read",
       "expectedRoles": [
@@ -125,19 +96,12 @@
       "actualRoles": [
         "Admin",
         "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead",
         "Owner"
       ],
-      "extraRoles": [
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireAuditReader",
       "permKey": "security.audit.read",
       "expectedRoles": [
@@ -148,19 +112,12 @@
       "actualRoles": [
         "Admin",
         "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead",
         "Owner"
       ],
-      "extraRoles": [
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireAuditExportWriter",
       "permKey": "security.audit.export",
       "expectedRoles": [
@@ -169,95 +126,62 @@
       ],
       "actualRoles": [
         "Admin",
-        "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead",
         "Owner"
       ],
-      "extraRoles": [
-        "Auditor",
-        "ComplianceOfficer",
-        "CopilotReviewer",
-        "FinanceLead"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireCrmEditor",
       "permKey": "crm.deal.create",
       "expectedRoles": [
         "Owner",
         "Admin",
         "Operator",
-        "Salesperson",
-        "Service Manager"
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager"
       ],
       "actualRoles": [
-        "Accountant",
         "Admin",
-        "Bookkeeper",
-        "FinanceLead",
-        "HelpdeskAgent",
         "Operator",
         "Owner",
-        "POSCashier",
         "SalesLead",
         "SalesManager",
         "SalesRep",
         "ServiceManager"
       ],
-      "extraRoles": [
-        "Accountant",
-        "Bookkeeper",
-        "FinanceLead",
-        "HelpdeskAgent",
-        "POSCashier",
-        "SalesLead",
-        "SalesManager",
-        "SalesRep",
-        "ServiceManager"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireCollectionEditor",
       "permKey": "crm.quote.send",
       "expectedRoles": [
         "Owner",
         "Admin",
         "Operator",
-        "Salesperson",
-        "Service Manager",
+        "SalesLead",
+        "SalesManager",
+        "SalesRep",
+        "ServiceManager",
         "Accountant"
       ],
       "actualRoles": [
         "Accountant",
         "Admin",
-        "Bookkeeper",
-        "FinanceLead",
-        "HelpdeskAgent",
         "Operator",
         "Owner",
-        "POSCashier",
         "SalesLead",
         "SalesManager",
         "SalesRep",
         "ServiceManager"
       ],
-      "extraRoles": [
-        "Bookkeeper",
-        "FinanceLead",
-        "HelpdeskAgent",
-        "POSCashier",
-        "SalesLead",
-        "SalesManager",
-        "SalesRep",
-        "ServiceManager"
-      ]
+      "extraRoles": []
     },
     {
-      "kind": "broad",
+      "kind": "pass",
       "source": "requireFinanceOperator",
       "permKey": "finance.journal.create",
       "expectedRoles": [
@@ -268,18 +192,9 @@
       "actualRoles": [
         "Accountant",
         "Admin",
-        "Bookkeeper",
-        "FinanceLead",
-        "Owner",
-        "PayrollClerk",
-        "PurchaseLead"
+        "Owner"
       ],
-      "extraRoles": [
-        "Bookkeeper",
-        "FinanceLead",
-        "PayrollClerk",
-        "PurchaseLead"
-      ]
+      "extraRoles": []
     },
     {
       "kind": "unknown-key",
@@ -347,6 +262,7 @@
       ],
       "actualRoles": [
         "Admin",
+        "Auditor",
         "Owner"
       ],
       "extraRoles": []

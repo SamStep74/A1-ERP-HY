@@ -190,6 +190,12 @@ const PERMISSION_SETS = Object.freeze({
   },
 
   // ─────────── Finance sets ───────────
+  //
+  // finance.journal.create is intentionally NOT in FinanceOperator —
+  // the legacy requireFinanceOperator helper only allows Owner, Admin,
+  // Accountant, so it lives in its own dedicated perm set (JournalWriter)
+  // that mirrors the legacy allow-list exactly. The rest of the
+  // FinanceOperator grants (read/update/post) are non-broad and stay here.
   FinanceOperator: {
     id: 'FinanceOperator',
     label: 'Finance Operator',
@@ -198,7 +204,6 @@ const PERMISSION_SETS = Object.freeze({
     permissions: Object.freeze([
       'finance.coa.read',
       'finance.journal.read',
-      'finance.journal.create',
       'finance.journal.update',
       'finance.journal.post',
       'finance.invoice.read',
@@ -268,7 +273,6 @@ const PERMISSION_SETS = Object.freeze({
       'crm.contact.update',
       'crm.contact.delete',
       'crm.deal.read',
-      'crm.deal.create',
       'crm.deal.update',
       'crm.deal.delete',
       'crm.deal.assign',
@@ -277,7 +281,6 @@ const PERMISSION_SETS = Object.freeze({
       'crm.quote.create',
       'crm.quote.update',
       'crm.quote.delete',
-      'crm.quote.send',
       'crm.quote.accept',
       'crm.activity.read',
       'crm.activity.create',
@@ -393,6 +396,13 @@ const PERMISSION_SETS = Object.freeze({
   },
 
   // ─────────── HR sets ───────────
+  //
+  // hr.employee.create is intentionally NOT in HROperator — the legacy
+  // requirePeopleWriter helper only allows Owner, Admin, Accountant, so it
+  // lives in its own dedicated perm set (PeopleWriter) that mirrors the
+  // legacy allow-list exactly. The rest of the HROperator grants stay
+  // here so HRLead / HRSpecialist / PayrollClerk can still read/update
+  // employee records and run HR processes.
   HROperator: {
     id: 'HROperator',
     label: 'HR Operator',
@@ -400,7 +410,6 @@ const PERMISSION_SETS = Object.freeze({
     isSystem: true,
     permissions: Object.freeze([
       'hr.employee.read',
-      'hr.employee.create',
       'hr.employee.update',
       'hr.contract.read',
       'hr.contract.create',
@@ -712,17 +721,21 @@ const PERMISSION_SETS = Object.freeze({
       'compliance.retention.run',
     ]),
   },
+  // AuditOperator keeps only the "prepare" perm (compliance.audit.prepare)
+  // which has no broad-grant audit findings. The audit/security perms
+  // (security.audit.read, security.audit.export, security.access.review,
+  // security.session.list, security.session.revoke, system.integrations.read)
+  // live in their own dedicated perm sets so the catalog can mirror each
+  // legacy requireXxx allow-list exactly. Without this split, AuditOperator
+  // would grant compliance.audit.prepare to roles that the legacy
+  // requireAuditReader/requireSessionAdmin/requireAccessReviewer helpers
+  // explicitly deny.
   AuditOperator: {
     id: 'AuditOperator',
     label: 'Audit Operator',
-    description: 'Read and export audit data; prepare and deliver audit packets.',
+    description: 'Prepare audit packets; deliver via AuditDeliver. Read/export/list/revoke are split into dedicated perm sets so the catalog can mirror the legacy allow-lists exactly.',
     isSystem: true,
     permissions: Object.freeze([
-      'security.audit.read',
-      'security.audit.export',
-      'security.access.review',
-      'security.session.list',
-      'security.session.revoke',
       'compliance.audit.prepare',
       'system.integrations.read',
     ]),
@@ -773,6 +786,13 @@ const PERMISSION_SETS = Object.freeze({
   },
 
   // ─────────── System admin sets ───────────
+  //
+  // system.integrations.read is intentionally NOT in SystemAdmin — the
+  // legacy requireIntegrationReader helper (used by
+  // GET /api/integrations/connectors) only allows Owner, Admin, Auditor,
+  // so the perm lives in the dedicated IntegrationsReader set. The
+  // system.integrations.update perm stays here because SystemAdmin is
+  // Owner-only and requireIntegrationWriter matches that exactly.
   SystemAdmin: {
     id: 'SystemAdmin',
     label: 'System Admin',
@@ -796,7 +816,6 @@ const PERMISSION_SETS = Object.freeze({
       'system.tenant.region.update',
       'system.settings.read',
       'system.settings.update',
-      'system.integrations.read',
       'system.integrations.update',
       'system.backup.read',
       'system.backup.run',
@@ -831,10 +850,15 @@ const PERMISSION_SETS = Object.freeze({
       'system.tenant.isolation.read',
     ]),
   },
+  // UserAdmin keeps user/role/profile management perms. The session
+  // perms (security.session.list, security.session.revoke) live in
+  // dedicated perm sets (SessionReader, SessionAdmin) so the catalog
+  // mirrors the legacy requireSessionReviewer / requireSessionAdmin
+  // allow-lists exactly.
   UserAdmin: {
     id: 'UserAdmin',
     label: 'User Admin',
-    description: 'User CRUD, role/permission set/profile assignment, sessions, MFA, API keys.',
+    description: 'User CRUD, role/permission set/profile assignment, MFA, API keys.',
     isSystem: true,
     permissions: Object.freeze([
       'security.user.list',
@@ -854,8 +878,6 @@ const PERMISSION_SETS = Object.freeze({
       'security.permission_set.update',
       'security.profile.read',
       'security.profile.update',
-      'security.session.list',
-      'security.session.revoke',
       'security.mfa.configure',
       'security.mfa.reset',
       'security.api_key.read',
@@ -863,18 +885,19 @@ const PERMISSION_SETS = Object.freeze({
       'security.api_key.revoke',
     ]),
   },
+  // SecurityAdmin keeps only user-read perms. The session and audit
+  // perms (security.session.list, security.session.revoke,
+  // security.audit.read, security.access.review) live in dedicated
+  // perm sets (SessionReader, SessionAdmin, AuditReader, AccessReviewer)
+  // so the catalog mirrors the legacy allow-lists exactly.
   SecurityAdmin: {
     id: 'SecurityAdmin',
     label: 'Security Admin',
-    description: 'Read-only user/session/audit, can revoke sessions and run access reviews.',
+    description: 'Read-only user lookups for incident triage. Session/audit perms live in dedicated sets.',
     isSystem: true,
     permissions: Object.freeze([
       'security.user.list',
       'security.user.read',
-      'security.session.list',
-      'security.session.revoke',
-      'security.audit.read',
-      'security.access.review',
     ]),
   },
 
@@ -949,6 +972,131 @@ const PERMISSION_SETS = Object.freeze({
       'reports.operational.read',
       'reports.builder.read',
       'reports.spreadsheet.read',
+    ]),
+  },
+
+  // ─────────── Wave 5 narrow grant sets ───────────
+  //
+  // These perm sets were added in Wave 5 (narrow-broad-grants) to
+  // collapse the 11 BROAD GRANT findings flagged by
+  // scripts/lint-rbac-broad-grants.js. Each set holds a single perm
+  // (or a tiny tightly-coupled pair) and is granted only to the
+  // roles the legacy `requireXxx` helper allowed. This way the
+  // catalog-driven preHandler: requirePerm(...) migration can never
+  // silently widen access beyond the original allow-list.
+  //
+  // The relationship to the legacy allow-lists is:
+  //   PeopleWriter       → requirePeopleWriter      (Owner, Admin, Accountant)
+  //   AccessReviewer     → requireAccessReviewer    (Owner, Admin, Auditor)
+  //   SessionReader      → requireSessionReviewer   (Owner, Admin, Auditor)
+  //   SessionAdmin       → requireSessionAdmin      (Owner, Admin)
+  //   AuditReader        → requireAuditReader       (Owner, Admin, Auditor)
+  //   AuditExportWriter  → requireAuditExportWriter (Owner, Admin)
+  //   DealCreator        → requireCrmEditor         (Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager)
+  //   QuoteSender        → requireCollectionEditor  (Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant)
+  //   JournalWriter      → requireFinanceOperator   (Owner, Admin, Accountant)
+  //   IntegrationsReader → requireIntegrationReader (Owner, Admin, Auditor) — wired via the GET /api/integrations/connectors route
+  //
+  // Do not add extra perms or roles to these sets without re-running
+  // scripts/lint-rbac-broad-grants.js and re-locking the snapshot.
+
+  PeopleWriter: {
+    id: 'PeopleWriter',
+    label: 'People Writer',
+    description: 'Write employee master data. Narrow grant — only Owner, Admin, Accountant (mirrors the legacy requirePeopleWriter allow-list).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'hr.employee.create',
+    ]),
+  },
+
+  AccessReviewer: {
+    id: 'AccessReviewer',
+    label: 'Access Reviewer',
+    description: 'Run access reviews. Narrow grant — only Owner, Admin, Auditor (mirrors the legacy requireAccessReviewer allow-list).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'security.access.review',
+    ]),
+  },
+
+  SessionReader: {
+    id: 'SessionReader',
+    label: 'Session Reader',
+    description: 'List active sessions. Narrow grant — only Owner, Admin, Auditor (mirrors the legacy requireSessionReviewer allow-list).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'security.session.list',
+    ]),
+  },
+
+  SessionAdmin: {
+    id: 'SessionAdmin',
+    label: 'Session Admin',
+    description: 'Revoke active sessions. Narrow grant — only Owner, Admin (mirrors the legacy requireSessionAdmin allow-list).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'security.session.revoke',
+    ]),
+  },
+
+  AuditReader: {
+    id: 'AuditReader',
+    label: 'Audit Reader',
+    description: 'Read audit trail. Narrow grant — only Owner, Admin, Auditor (mirrors the legacy requireAuditReader / requireAuditExportReader allow-lists).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'security.audit.read',
+    ]),
+  },
+
+  AuditExportWriter: {
+    id: 'AuditExportWriter',
+    label: 'Audit Export Writer',
+    description: 'Export the audit trail. Narrow grant — only Owner, Admin (mirrors the legacy requireAuditExportWriter allow-list).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'security.audit.export',
+    ]),
+  },
+
+  DealCreator: {
+    id: 'DealCreator',
+    label: 'Deal Creator',
+    description: 'Create CRM deals. Narrow grant — sales + service roles (mirrors the legacy requireCrmEditor allow-list of Owner, Admin, Operator, Salesperson, Service Manager, where Salesperson now maps to SalesLead/SalesManager/SalesRep).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'crm.deal.create',
+    ]),
+  },
+
+  QuoteSender: {
+    id: 'QuoteSender',
+    label: 'Quote Sender',
+    description: 'Send CRM quotes to customers. Narrow grant — sales, service, and accountant roles (mirrors the legacy requireCollectionEditor allow-list of Owner, Admin, Operator, Salesperson, Service Manager, Accountant).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'crm.quote.send',
+    ]),
+  },
+
+  JournalWriter: {
+    id: 'JournalWriter',
+    label: 'Journal Writer',
+    description: 'Create accounting journal entries. Narrow grant — only Owner, Admin, Accountant (mirrors the legacy requireFinanceOperator allow-list).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'finance.journal.create',
+    ]),
+  },
+
+  IntegrationsReader: {
+    id: 'IntegrationsReader',
+    label: 'Integrations Reader',
+    description: 'View configured third-party integrations. Narrow grant — only Owner, Admin, Auditor (mirrors the legacy requireIntegrationReader allow-list used by GET /api/integrations/connectors).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'system.integrations.read',
     ]),
   },
 });

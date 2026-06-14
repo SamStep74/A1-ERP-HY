@@ -7881,7 +7881,13 @@ function requirePilotNextRecurringOngoingRenewalCloseoutWriter(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager
+// (Legacy "Salesperson" / "Service Manager" role names were renamed to the current
+//  sales + service role set: SalesLead / SalesManager / SalesRep / ServiceManager.
+//  The catalog grant of crm.deal.create via the new DealCreator perm set
+//  matches the new names. See server/rbac/helper-audit-map.json for the audit record.)
 function requireCrmEditor(user) {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
     const err = new Error("CRM editor role required");
     err.statusCode = 403;
@@ -7981,7 +7987,14 @@ function requireWorkflowBuilderSuggestionAccess(user) {
   }
 }
 
+// rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant
+// (Legacy "Salesperson" / "Service Manager" role names were renamed to the current
+//  sales + service role set: SalesLead / SalesManager / SalesRep / ServiceManager.
+//  Accountant is the historical "collection" role for billing; the QuoteSender
+//  perm set in matrix.js grants crm.quote.send to that exact set.
+//  See server/rbac/helper-audit-map.json for the audit record.)
 function requireCollectionEditor(user) {
+  // rbac-audit: expected-roles Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager, Accountant
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant"].includes(user.role)) {
     const err = new Error("Collection editor role required");
     err.statusCode = 403;
