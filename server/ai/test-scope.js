@@ -30,8 +30,11 @@ const {
   TOOL_PREFIX,
   COPILOT_USE_KEY,
   COPILOT_MUTATE_KEY,
+  BUDGET_OVERRIDE_KEY,
   ABSOLUTE_MAX_TOKENS,
   DEFAULT_MAX_TOKENS,
+  GOVERNANCE_MAX_TOKENS,
+  sanitizeIdentifier,
 } = require("./governance");
 
 // ─────────────── Fixture builders ───────────────
@@ -415,5 +418,104 @@ describe("governance constants", () => {
   });
   test("COPILOT_MUTATE_KEY is ai.copilot.mutate", () => {
     assert.equal(COPILOT_MUTATE_KEY, "ai.copilot.mutate");
+  });
+  test("BUDGET_OVERRIDE_KEY is the catalog key for budget admin override", () => {
+    assert.equal(BUDGET_OVERRIDE_KEY, "ai.budget.update");
+  });
+  test("GOVERNANCE_MAX_TOKENS is strictly greater than ABSOLUTE_MAX_TOKENS", () => {
+    assert.ok(GOVERNANCE_MAX_TOKENS > ABSOLUTE_MAX_TOKENS,
+      `expected GOVERNANCE_MAX_TOKENS (${GOVERNANCE_MAX_TOKENS}) > ABSOLUTE_MAX_TOKENS (${ABSOLUTE_MAX_TOKENS})`);
+  });
+});
+
+// ─────────────── Budget-override ceiling (HIGH-severity regression) ───────────────
+//
+// Original implementation had a dead-branch bug:
+//   const ceiling = hasBudgetOverride ? ABSOLUTE_MAX_TOKENS : ABSOLUTE_MAX_TOKENS;
+// which made `hasBudgetOverride` cosmetic. The fix introduces a separate
+// `GOVERNANCE_MAX_TOKENS` ceiling for budget admins. These tests pin both
+// branches to their actual values so a future refactor can't silently make
+// them equivalent again.
+
+describe("resolveCopilotScope — budget-override ceiling", () => {
+  test("holders of ai.budget.update get a higher ceiling than the default", () => {
+    const user = makeUser({
+      role: "BudgetAdmin",
+      extra: { _effectivePermissions: granted([COPILOT_USE_KEY, BUDGET_OVERRIDE_KEY]) },
+    });
+    const scope = resolveCopilotScope(user, { maxTokens: GOVERNANCE_MAX_TOKENS });
+    assert.equal(scope.denial, null);
+    assert.equal(scope.hasBudgetOverride, true);
+    assert.equal(scope.maxTokens, GOVERNANCE_MAX_TOKENS);
+  });
+
+  test("non-holders are clamped to ABSOLUTE_MAX_TOKENS, not GOVERNANCE_MAX_TOKENS", () => {
+    const user = makeUser({
+      role: "SalesRep",
+      extra: { _effectivePermissions: granted([COPILOT_USE_KEY]) },
+    });
+    const scope = resolveCopilotScope(user, { maxTokens: GOVERNANCE_MAX_TOKENS });
+    assert.equal(scope.denial, null);
+    assert.equal(scope.hasBudgetOverride, false);
+    assert.equal(scope.maxTokens, ABSOLUTE_MAX_TOKENS,
+      "non-holders must not see the higher governance ceiling");
+  });
+});
+
+// ─────────────── Identifier sanitization (MEDIUM-severity) ───────────────
+//
+// Before this fix, the SOURCE_DENIED and TOOL_DENIED denials reflected
+// arbitrary caller-supplied strings into the JSON response, which lets a
+// malicious client inject CRLF or escape sequences. The resolver now runs
+// `sanitizeIdentifier` before composing the message and the missingKey.
+
+describe("sanitizeIdentifier", () => {
+  test("strips control characters and quotes", () => {
+    assert.equal(sanitizeIdentifier('"law\r\n-injected"'), "law-injected");
+  });
+  test("caps length to 80 chars", () => {
+    const long = "a".repeat(200);
+    const out = sanitizeIdentifier(long);
+    assert.ok(out.length <= 80);
+  });
+  test("returns null for empty / non-string input", () => {
+    assert.equal(sanitizeIdentifier(""), null);
+    assert.equal(sanitizeIdentifier(null), null);
+    assert.equal(sanitizeIdentifier(undefined), null);
+    assert.equal(sanitizeIdentifier(42), null);
+  });
+  test("keeps letters, digits, dot, underscore, dash", () => {
+    assert.equal(sanitizeIdentifier("law-tax_code.v2"), "law-tax_code.v2");
+  });
+});
+
+describe("resolveCopilotScope — sanitized denial identifiers", () => {
+  test("SOURCE_DENIED missingKey is sanitized (no control chars, no CRLF)", () => {
+    const user = makeUser({
+      role: "SalesRep",
+      extra: { _effectivePermissions: granted([COPILOT_USE_KEY, "ai.tool.read"]) },
+    });
+    const malicious = 'law\r\nX-Evil: yes';
+    const scope = resolveCopilotScope(user, { sourceIds: [malicious] });
+    assert.ok(scope.denial);
+    assert.equal(scope.denial.code, ERROR_CODES.SOURCE_DENIED);
+    // The reflected missing key must not contain CR/LF and must be capped.
+    assert.equal(scope.denial.missingKey.includes("\r"), false);
+    assert.equal(scope.denial.missingKey.includes("\n"), false);
+    assert.ok(scope.denial.missingKey.length <= 80);
+    // The error message must also be free of the injected characters.
+    assert.equal(scope.denial.message.includes("\r"), false);
+    assert.equal(scope.denial.message.includes("\n"), false);
+  });
+
+  test("TOOL_DENIED missingKey is sanitized", () => {
+    const user = makeUser({
+      role: "SalesRep",
+      extra: { _effectivePermissions: granted([COPILOT_USE_KEY, "ai.tool.read"]) },
+    });
+    const scope = resolveCopilotScope(user, { tools: ["ai.tool. read"] });
+    assert.ok(scope.denial);
+    assert.equal(scope.denial.code, ERROR_CODES.TOOL_DENIED);
+    assert.equal(scope.denial.missingKey.includes(" "), false);
   });
 });

@@ -188,7 +188,9 @@ function buildApp(options = {}) {
   // `code` / `missingKey` / `retryable` fields that the Copilot scope
   // envelope exposes. We attach them here so the client UI can decide
   // whether to show "request access from your admin" (retryable=false) vs.
-  // "verify MFA and retry" (retryable=true).
+  // "verify MFA and retry" (retryable=true). Every other error type is
+  // delegated to Fastify's built-in handler so we don't suppress its
+  // normal validation / serialization responses.
   app.setErrorHandler((err, request, reply) => {
     if (err && err.name === "CopilotScopeError") {
       reply.code(err.statusCode || 403).send({
@@ -199,13 +201,9 @@ function buildApp(options = {}) {
       });
       return;
     }
-    // Default behavior for everything else: pass through whatever
-    // statusCode/message Fastify would have used.
-    const status = err && err.statusCode ? err.statusCode : 500;
-    reply.code(status).send({
-      error: err && err.code ? err.code : "internal_error",
-      message: err && err.message ? err.message : "Internal server error",
-    });
+    // Delegate everything else (validation, serialization, internal) to
+    // Fastify's default handler unchanged.
+    reply.send(err);
   });
 
   app.addHook("onClose", () => {
@@ -46537,15 +46535,19 @@ async function createCopilotQuestion(db, user, body) {
     throw err;
   }
   // Wave 2: AI Copilot scope governance.
-  // Resolve the user's effective scope BEFORE any AI call or persistence.
-  // `enforceCopilotScope` throws a structured CopilotScopeError on any
-  // denial (missing `ai.copilot.use`, mutation without `ai.copilot.mutate`,
-  // MFA required for tool.execute / agent.deploy, source not in the user's
-  // grant set, tool not in the user's `ai.tool.*` keys, etc.).
-  const scope = copilot.enforceCopilotScope(user, body);
+  // App-access checks run first — the copilot app assignment and the
+  // intent-specific app assignment (finance, crm, etc.) are coarse-grained
+  // DB lookups; failing them is a 403 from the existing handler with a
+  // user-friendly message. After that, the per-request scope envelope is
+  // resolved. `enforceCopilotScope` throws a structured CopilotScopeError
+  // on any denial (missing `ai.copilot.use`, mutation without
+  // `ai.copilot.mutate`, MFA required for tool.execute / agent.deploy,
+  // source not in the user's grant set, tool not in the user's `ai.tool.*`
+  // keys, etc.).
   const intent = copilot.normalizeIntent(input.intent, question);
   requireAppAccess(db, user, "copilot");
   requireAppAccess(db, user, copilot.requiredAppForIntent(intent));
+  const scope = copilot.enforceCopilotScope(user, body);
   const customer = getCopilotCustomer(db, user.org_id, input.customerId);
   const context = buildCopilotContext(db, user, intent, input, customer);
   const citations = getCopilotCitations(db, user.org_id, intent, question);

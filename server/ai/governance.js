@@ -37,8 +37,11 @@ const BUDGET_OVERRIDE_KEY = "ai.budget.update";
 
 // Hard caps. These mirror the *required* ceilings from the catalog — not the
 // per-role overrides a user might negotiate via custom permission sets.
+// A user with `ai.budget.update` (the budget admin override) is allowed to
+// request a higher ceiling; everyone else is clamped to the default.
 const DEFAULT_MAX_TOKENS = 4096;
 const ABSOLUTE_MAX_TOKENS = 8192;
+const GOVERNANCE_MAX_TOKENS = 16384; // ceiling for budget-admin override
 
 // Mutations are requests that, if forwarded to the AI provider, would change
 // downstream state. The Copilot advisory itself is always read-only, but the
@@ -65,6 +68,19 @@ function intersection(a, b) {
   const out = [];
   for (const item of a) if (bSet.has(item)) out.push(item);
   return out;
+}
+
+// Cap and sanitize a free-form identifier before it ever reaches an error
+// message or a `missingKey` field. We don't want a malicious caller to
+// smuggle control characters, CRLF, or 64KB of text into the JSON response.
+// The character class is intentionally narrow: lowercase letters, digits,
+// dot, underscore, dash. Anything outside it is stripped.
+const SAFE_ID_RE = /[^a-z0-9._-]/g;
+const SAFE_ID_MAX_LENGTH = 80;
+function sanitizeIdentifier(value) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(SAFE_ID_RE, "").slice(0, SAFE_ID_MAX_LENGTH);
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 // ─────────────── CopilotScopeError ───────────────
@@ -202,9 +218,13 @@ function resolveCopilotScope(user, requestBody) {
     userToolSet.has(tool) || userToolSet.has(TOOL_PREFIX + tool)
   );
 
-  // ── Tokens: min(requested, ABSOLUTE_MAX) unless override held ──
+  // ── Tokens: min(requested, ceiling). The ceiling is the
+  //   GOVERNANCE_MAX_TOKENS for budget admins (holders of
+  //   `ai.budget.update`), the default ABSOLUTE_MAX_TOKENS for everyone
+  //   else. The audit log records `hasBudgetOverride` so reviewers can
+  //   see which ceiling was applied.
   const requestedMaxTokens = normalizeRequestedMaxTokens(body.maxTokens);
-  const ceiling = hasBudgetOverride ? ABSOLUTE_MAX_TOKENS : ABSOLUTE_MAX_TOKENS;
+  const ceiling = hasBudgetOverride ? GOVERNANCE_MAX_TOKENS : ABSOLUTE_MAX_TOKENS;
   const maxTokens = Math.min(requestedMaxTokens, ceiling);
 
   // ── MFA: required when the request asks for tool.execute or agent.deploy
@@ -246,8 +266,12 @@ function resolveCopilotScope(user, requestBody) {
     // Caller asked for sources but none of them are in the user's grant set.
     // If the user has *no* sources at all, fall back to a generic "denied"
     // message. If they have some but asked for others, name the first one
-    // they don't have.
-    const firstMissing = requestedSources.find(s => !userSourceSet.has(s)) || null;
+    // they don't have. We sanitize the identifier before it reaches the
+    // error message so a malicious caller can't inject CRLF or escape
+    // characters into the JSON response.
+    const firstMissing = sanitizeIdentifier(
+      requestedSources.find(s => !userSourceSet.has(s)) || null
+    );
     denial = makeDenial({
       code: ERROR_CODES.SOURCE_DENIED,
       message: firstMissing
@@ -258,7 +282,9 @@ function resolveCopilotScope(user, requestBody) {
       httpStatus: 403,
     });
   } else if (requestedTools.length > 0 && allowedTools.length === 0) {
-    const firstMissing = requestedTools.find(t => !userToolSet.has(t) && !userToolSet.has(TOOL_PREFIX + t)) || null;
+    const firstMissing = sanitizeIdentifier(
+      requestedTools.find(t => !userToolSet.has(t) && !userToolSet.has(TOOL_PREFIX + t)) || null
+    );
     denial = makeDenial({
       code: ERROR_CODES.TOOL_DENIED,
       message: firstMissing
@@ -428,7 +454,9 @@ module.exports = {
   BUDGET_OVERRIDE_KEY,
   ABSOLUTE_MAX_TOKENS,
   DEFAULT_MAX_TOKENS,
+  GOVERNANCE_MAX_TOKENS,
   // Helpers (exported for tests)
   isMutationRequest,
   intersection,
+  sanitizeIdentifier,
 };
