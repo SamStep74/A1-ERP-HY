@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-14T10:49:14.222Z`
+Generated: `2026-06-14T11:53:57.069Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
