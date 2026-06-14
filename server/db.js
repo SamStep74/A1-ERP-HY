@@ -1009,6 +1009,75 @@ function initSchema(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_quote_acceptances_quote
       ON quote_acceptances(org_id, quote_id);
 
+    -- Sales orders: post-quote-acceptance supply chain primitives.
+    -- Distinct from `deals` (CRM pipeline, pre-acceptance) and `quotes`
+    -- (pricing documents). A sales order tracks fulfillment, billing, and
+    -- shipping. Stock reservation is wired in Phase 1; auto-invoicing on
+    -- fulfillment is Phase 1 too. Fulfillment & billing status enums are
+    -- enforced at the API layer (CHECK is enforced in the table below).
+    CREATE TABLE IF NOT EXISTS sales_orders (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      deal_id TEXT REFERENCES deals(id) ON DELETE SET NULL,
+      quote_id TEXT REFERENCES quotes(id) ON DELETE SET NULL,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+      order_number TEXT NOT NULL,
+      order_date TEXT NOT NULL,
+      requested_delivery_date TEXT,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      vat_total INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      fulfillment_status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (fulfillment_status IN ('draft','reserved','picking','packed','shipped','delivered','cancelled')),
+      billing_status TEXT NOT NULL DEFAULT 'unbilled'
+        CHECK (billing_status IN ('unbilled','partial','invoiced','paid','written_off')),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(org_id, order_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sales_orders_order_number
+      ON sales_orders(org_id, order_number);
+
+    CREATE INDEX IF NOT EXISTS idx_sales_orders_customer
+      ON sales_orders(org_id, customer_id, order_date DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_sales_orders_fulfillment
+      ON sales_orders(org_id, fulfillment_status);
+
+    CREATE INDEX IF NOT EXISTS idx_sales_orders_billing
+      ON sales_orders(org_id, billing_status);
+
+    CREATE TABLE IF NOT EXISTS sales_order_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sales_order_id TEXT NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      catalog_item_id TEXT REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      catalog_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE RESTRICT,
+      description TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK (quantity > 0),
+      unit TEXT NOT NULL DEFAULT 'հատ',
+      unit_price_minor INTEGER NOT NULL CHECK (unit_price_minor >= 0),
+      discount_percent REAL NOT NULL DEFAULT 0
+        CHECK (discount_percent >= 0 AND discount_percent <= 100),
+      vat_class TEXT NOT NULL DEFAULT 'standard',
+      line_total INTEGER NOT NULL,
+      vat_amount INTEGER NOT NULL,
+      fulfillment_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (fulfillment_status IN ('pending','reserved','picked','shipped','cancelled')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(sales_order_id, line_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sales_order_lines_catalog_item
+      ON sales_order_lines(org_id, catalog_item_id);
+
+    CREATE INDEX IF NOT EXISTS idx_sales_order_lines_order_fulfillment
+      ON sales_order_lines(sales_order_id, fulfillment_status);
+
     CREATE TABLE IF NOT EXISTS docs_signature_packets (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
