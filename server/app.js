@@ -15,18 +15,6 @@ const {
   resolveVatRate
 } = require("./db");
 
-// Wave 3 Phase 1 RBAC migration — catalog-driven preHandlers and FLS
-// redaction. We import the small subset of guard helpers that
-// requirePerm-style preHandlers need; the legacy requireXxx helpers
-// defined later in this file (requireCatalogReader, requireOwner, ...)
-// stay in place until that slice is peeled out in a later wave.
-const {
-  requirePerm,
-  requirePermissionWithSensitivity,
-  redactFields,
-  FLS_RULES,
-} = require("./rbac/guards");
-
 const DEFAULT_REPORT_DATE = "2026-05-26";
 const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
@@ -152,45 +140,6 @@ const {
   publicPlatformTenantSummary,
   sanitizePlatformError
 } = require("./platformTenant");
-const { requirePerm } = require("./rbac/guards");
-
-// Wave 3 RBAC migration: catalog-driven guards used by the requireXxx
-// helpers and the per-route preHandlers. The requireXxx helpers below
-// delegate to requirePermissionWithSensitivity so the legacy `user.role`
-// checks in app.js are replaced by catalog lookups. Per-route preHandlers
-// wrap the same primitive so high-sensitivity mutations (finance.journal.post,
-// hr.payroll.run, compliance.legal.update, security.access.review) get the
-// same MFA + dual-control treatment whether the check runs in the handler
-// (via the helper) or up-front (via the preHandler).
-const {
-  requirePermission,
-  requirePermissionWithSensitivity,
-  hasPermission,
-  redactFields,
-  recordLevelClause,
-  enforceSessionPolicy,
-} = require("./rbac/guards");
-
-// Build a Fastify preHandler that authenticates the request, stashes the
-// user on `request.user`, and then enforces a single catalog permission
-// (with sensitivity / MFA gating). This is the standard preHandler for
-// routes that have moved to the catalog; it composes with the existing
-// `app.auth(request)` decorator so the in-handler `const user = await
-// app.auth(request)` calls keep working unchanged.
-const rbacAuthAndPerm = (permissionKey) => async (request, reply) => {
-  try {
-    const user = await request.server.auth(request);
-    request.user = user;
-    requirePermissionWithSensitivity(user, permissionKey);
-  } catch (err) {
-    reply.code(err.statusCode || 403).send({
-      error: err.code || 'rbac_forbidden',
-      message: err.message,
-      required: err.required,
-      sensitivity: err.sensitivity,
-    });
-  }
-};
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -311,12 +260,9 @@ function registerApi(app, db, options = {}) {
     platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
 
-  app.get("/api/platform/tenant", {
-    preHandler: [
-      async request => { request.user = await app.auth(request); },
-      requirePerm("system.tenant.read")
-    ]
-  }, async request => {
+  app.get("/api/platform/tenant", async request => {
+    const user = await app.auth(request);
+    requireAuditReader(user);
     return platformTenantSummary(request.a1Tenant, env);
   });
 
@@ -407,22 +353,16 @@ function registerApi(app, db, options = {}) {
     return getMfaStatus(db, user);
   });
 
-  app.post("/api/security/mfa/enroll", {
-    preHandler: [
-      async request => { request.user = await app.auth(request); },
-      requirePerm("security.mfa.configure")
-    ]
-  }, async request => {
-    return createMfaEnrollment(db, request.user, request.body === undefined ? {} : request.body);
+  app.post("/api/security/mfa/enroll", async request => {
+    const user = await app.auth(request);
+    requireMfaPrivilegedUser(user);
+    return createMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
   });
 
-  app.post("/api/security/mfa/verify-enrollment", {
-    preHandler: [
-      async request => { request.user = await app.auth(request); },
-      requirePerm("security.mfa.configure")
-    ]
-  }, async request => {
-    return verifyMfaEnrollment(db, request.user, request.body === undefined ? {} : request.body);
+  app.post("/api/security/mfa/verify-enrollment", async request => {
+    const user = await app.auth(request);
+    requireMfaPrivilegedUser(user);
+    return verifyMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/suite", async request => {
@@ -453,310 +393,229 @@ function registerApi(app, db, options = {}) {
     return { apps: getAssignedApps(db, user.org_id, user.role), allApps: getAllApps(db, user.org_id) };
   });
 
-  app.get("/api/integrations/connectors", {
-    preHandler: [
-      async request => { request.user = await app.auth(request); },
-      requirePerm("system.integrations.read")
-    ]
-  }, async request => {
-    const user = request.user;
+  app.get("/api/integrations/connectors", async request => {
+    const user = await app.auth(request);
+    requireIntegrationReader(user);
     return { connectors: getIntegrationConnectors(db, user.org_id) };
   });
 
-  app.post("/api/integrations/connectors/:key/configure", {
-    preHandler: [
-      async request => { request.user = await app.auth(request); },
-      requirePerm("system.integrations.update")
-    ]
-  }, async request => {
-    const user = request.user;
+  app.post("/api/integrations/connectors/:key/configure", async request => {
+    const user = await app.auth(request);
+    requireIntegrationWriter(user);
     const connectorKey = normalizeIntegrationConnectorKey(request.params.key);
     const connector = configureIntegrationConnector(db, user, connectorKey, request.body || {});
     return { ok: true, connector };
   });
 
-  app.post("/api/integrations/connectors/:key/health-check", {
-    preHandler: [
-      async request => { request.user = await app.auth(request); },
-      requirePerm("system.integrations.update")
-    ]
-  }, async request => {
-    const user = request.user;
+  app.post("/api/integrations/connectors/:key/health-check", async request => {
+    const user = await app.auth(request);
+    requireIntegrationWriter(user);
     const connectorKey = normalizeIntegrationConnectorKey(request.params.key);
     const check = runIntegrationConnectorHealthCheck(db, user, connectorKey, request.body || {});
     return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
-  // Catalog pricing/margin fields are FLS-gated; only callers that hold
-  // inv.stock.receive (or above) get to see cost_price / margin. The
-  // `requireCatalogReader` helper below is kept as defense in depth — the
-  // real gate is the preHandler + the redactFields call on the response.
-  const CATALOG_PRICING_REDACT_PATHS = Object.freeze([
-    'inv.product.cost_price',
-    'inv.product.margin',
-  ]);
-
-  app.get("/api/catalog/categories", { preHandler: requirePerm('inv.product.read') }, async request => {
+  app.get("/api/catalog/categories", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return redactFields(request.user, {
+    return {
       categories: getCatalogCategories(db, user.org_id),
       unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
       marginRules: getCatalogMarginRules(db, user.org_id),
       priceLists: getCatalogPriceLists(db, user.org_id)
-    }, CATALOG_PRICING_REDACT_PATHS);
+    };
   });
 
-  app.get("/api/catalog/price-lists", { preHandler: requirePerm('inv.product.read') }, async request => {
+  app.get("/api/catalog/price-lists", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return redactFields(request.user, {
-      priceLists: getCatalogPriceLists(db, user.org_id)
-    }, CATALOG_PRICING_REDACT_PATHS);
+    return { priceLists: getCatalogPriceLists(db, user.org_id) };
   });
 
-  app.get("/api/catalog/pricing/resolve", { preHandler: requirePerm('inv.product.read') }, async request => {
+  app.get("/api/catalog/pricing/resolve", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const query = normalizeCatalogPriceResolveQuery(request.query || {});
-    return redactFields(request.user, {
-      pricing: resolveCatalogPricing(db, user.org_id, query)
-    }, CATALOG_PRICING_REDACT_PATHS);
+    return { pricing: resolveCatalogPricing(db, user.org_id, query) };
   });
 
-  app.get("/api/catalog/margin-rules", { preHandler: requirePerm('inv.product.read') }, async request => {
+  app.get("/api/catalog/margin-rules", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return redactFields(request.user, {
-      marginRules: getCatalogMarginRules(db, user.org_id)
-    }, CATALOG_PRICING_REDACT_PATHS);
+    return { marginRules: getCatalogMarginRules(db, user.org_id) };
   });
 
-  app.get("/api/catalog/items", { preHandler: requirePerm('inv.product.read') }, async request => {
+  app.get("/api/catalog/items", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const filters = normalizeCatalogItemQuery(request.query || {});
-    return redactFields(request.user, {
+    return {
       items: getCatalogItems(db, user.org_id, filters),
       categories: getCatalogCategories(db, user.org_id),
       unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
       marginRules: getCatalogMarginRules(db, user.org_id),
       priceLists: getCatalogPriceLists(db, user.org_id)
-    }, CATALOG_PRICING_REDACT_PATHS);
+    };
   });
 
-  app.get("/api/catalog/items/:id", { preHandler: requirePerm('inv.product.read') }, async request => {
+  app.get("/api/catalog/items/:id", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
     const item = getCatalogItem(db, user.org_id, itemId);
     if (!item) { const err = new Error("Catalog item not found"); err.statusCode = 404; throw err; }
-    return redactFields(request.user, { item }, CATALOG_PRICING_REDACT_PATHS);
+    return { item };
   });
 
-  app.post("/api/catalog/items", { preHandler: requirePerm('inv.product.create') }, async request => {
+  app.post("/api/catalog/items", async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
     const item = createCatalogItem(db, user, request.body === undefined ? {} : request.body);
-    return redactFields(request.user, { ok: true, item }, CATALOG_PRICING_REDACT_PATHS);
+    return { ok: true, item };
   });
 
-  app.patch("/api/catalog/items/:id", { preHandler: requirePerm('inv.product.update') }, async request => {
+  app.patch("/api/catalog/items/:id", async request => {
     const user = await app.auth(request);
     requireCatalogWriter(user);
     const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
     const item = updateCatalogItem(db, user, itemId, request.body === undefined ? {} : request.body);
-    return redactFields(request.user, { ok: true, item }, CATALOG_PRICING_REDACT_PATHS);
+    return { ok: true, item };
   });
 
-  // Inventory responses carry unit_cost / total_value; only callers that
-  // hold inv.stock.receive (or above) see the cost columns. The
-  // requireInventoryReader / requireInventoryWriter in-handler helpers
-  // stay as defense in depth — the real gate is the preHandler +
-  // redactFields call on the response.
-  const INVENTORY_REDACT_PATHS = Object.freeze([
-    'inv.stock.unit_cost',
-    'inv.stock.total_value',
-  ]);
-
-  app.get("/api/inventory/locations", { preHandler: requirePerm('inv.stock.read') }, async request => {
+  app.get("/api/inventory/locations", async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     return { locations: getStockLocations(db, user.org_id) };
   });
 
-  app.get("/api/inventory/stock", { preHandler: requirePerm('inv.stock.read') }, async request => {
+  app.get("/api/inventory/stock", async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     const filters = normalizeInventoryQuery(request.query || {});
-    return redactFields(request.user, {
-      stock: getStockQuants(db, user.org_id, filters),
-      locations: getStockLocations(db, user.org_id)
-    }, INVENTORY_REDACT_PATHS);
+    return { stock: getStockQuants(db, user.org_id, filters), locations: getStockLocations(db, user.org_id) };
   });
 
-  app.get("/api/inventory/moves", { preHandler: requirePerm('inv.stock.read') }, async request => {
+  app.get("/api/inventory/moves", async request => {
     const user = await app.auth(request);
     requireInventoryReader(user);
     const filters = normalizeInventoryQuery(request.query || {});
-    return redactFields(request.user, {
-      moves: getStockMoves(db, user.org_id, filters)
-    }, INVENTORY_REDACT_PATHS);
+    return { moves: getStockMoves(db, user.org_id, filters) };
   });
 
-  app.post("/api/inventory/moves", { preHandler: requirePerm('inv.stock.receive') }, async request => {
+  app.post("/api/inventory/moves", async request => {
     const user = await app.auth(request);
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
-    return redactFields(request.user, {
-      ok: true,
-      move,
-      stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId })
-    }, INVENTORY_REDACT_PATHS);
+    return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
   });
 
-  // Purchase responses carry vendor pricing, PO amount, and unit cost.
-  // Callers need purchase.pricelist.read to see vendor pricing, and
-  // purchase.po.create to see PO amount / total. The requirePurchaseReader
-  // and requirePurchaseWriter in-handler helpers stay as defense in depth.
-  const PURCHASE_VENDOR_REDACT_PATHS = Object.freeze([
-    'purchase.vendor.pricing',
-    'purchase.vendor.unit_cost',
-  ]);
-  const PURCHASE_PO_REDACT_PATHS = Object.freeze([
-    'purchase.po.amount',
-    'purchase.po.total',
-    'purchase.po.unit_cost',
-  ]);
-
-  app.get("/api/purchase/orders", { preHandler: requirePerm('purchase.po.read') }, async request => {
+  app.get("/api/purchase/orders", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return redactFields(request.user, {
-      orders: getPurchaseOrders(db, user.org_id)
-    }, PURCHASE_PO_REDACT_PATHS);
+    return { orders: getPurchaseOrders(db, user.org_id) };
   });
 
-  app.get("/api/purchase/vendors", { preHandler: requirePerm('purchase.vendor.read') }, async request => {
+  app.get("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return redactFields(request.user, {
-      vendors: getPurchaseVendors(db, user.org_id)
-    }, PURCHASE_VENDOR_REDACT_PATHS);
+    return { vendors: getPurchaseVendors(db, user.org_id) };
   });
 
-  app.get("/api/purchase/analytics", { preHandler: requirePerm('purchase.analytics.read') }, async request => {
+  app.get("/api/purchase/analytics", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return redactFields(request.user, getPurchaseAnalytics(db, user.org_id), PURCHASE_PO_REDACT_PATHS);
+    return getPurchaseAnalytics(db, user.org_id);
   });
 
-  app.post("/api/purchase/vendors", { preHandler: requirePerm('purchase.vendor.create') }, async request => {
+  app.post("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
-    return redactFields(request.user, createPurchaseVendor(db, user, request.body === undefined ? {} : request.body), PURCHASE_VENDOR_REDACT_PATHS);
+    return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
   });
 
-  app.post("/api/purchase/orders", { preHandler: requirePerm('purchase.po.create') }, async request => {
+  app.post("/api/purchase/orders", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
-    return redactFields(request.user, createPurchaseOrder(db, user, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
+    return createPurchaseOrder(db, user, request.body === undefined ? {} : request.body);
   });
 
-  app.post("/api/purchase/orders/:id/confirm", { preHandler: requirePerm('purchase.po.update') }, async request => {
+  app.post("/api/purchase/orders/:id/confirm", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return redactFields(request.user, confirmPurchaseOrder(db, user, orderId), PURCHASE_PO_REDACT_PATHS);
+    return confirmPurchaseOrder(db, user, orderId);
   });
 
-  app.post("/api/purchase/orders/:id/receive", { preHandler: requirePerm('purchase.receipt.create') }, async request => {
+  app.post("/api/purchase/orders/:id/receive", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return redactFields(request.user, receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
+    return receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
   });
 
-  app.post("/api/purchase/orders/:id/return", { preHandler: requirePerm('purchase.return.create') }, async request => {
+  app.post("/api/purchase/orders/:id/return", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return redactFields(request.user, returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
+    return returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
   });
 
-  app.post("/api/purchase/orders/:id/bill", { preHandler: requirePerm('finance.bill.create') }, async request => {
+  app.post("/api/purchase/orders/:id/bill", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
     const orderId = normalizePurchasePathId(request.params.id);
-    return redactFields(request.user, billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body), PURCHASE_PO_REDACT_PATHS);
+    return billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
   });
 
-  // Wave 3 Phase 1 catalog pilot keys cover the 4 main entity types:
-  // templates, owner-briefs, operator-workbenches, accountant-reviews.
-  // The downstream launch/quote/hayhashvapah/closeout/renewal chain is
-  // intentionally left on the legacy requirePilot* helpers (with a
-  // deferral comment) until a follow-up wave adds the corresponding
-  // permission keys. requirePerm() already calls
-  // requirePermissionWithSensitivity internally, so pilot.template.install
-  // (medium) gets sensitivity gating from the preHandler alone.
-  app.get("/api/pilots/templates/clinic-wellness", { preHandler: requirePerm('pilot.template.read') }, async request => {
+  app.get("/api/pilots/templates/clinic-wellness", async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
     return getClinicWellnessPilotTemplateResponse(db, user.org_id);
   });
 
-  app.post("/api/pilots/templates/clinic-wellness/install", { preHandler: requirePerm('pilot.template.install') }, async request => {
+  app.post("/api/pilots/templates/clinic-wellness/install", async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
     const body = request.body === undefined ? {} : request.body;
     return installClinicWellnessPilotTemplate(db, user, body);
   });
 
-  app.get("/api/pilots/clinic-wellness/owner-briefs", { preHandler: requirePerm('pilot.brief.read') }, async request => {
+  app.get("/api/pilots/clinic-wellness/owner-briefs", async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
     return { briefs: getPilotOwnerBriefs(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
-  app.post("/api/pilots/clinic-wellness/owner-briefs", { preHandler: requirePerm('pilot.brief.create') }, async request => {
+  app.post("/api/pilots/clinic-wellness/owner-briefs", async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
     return createClinicWellnessOwnerBrief(db, user, request.body || {});
   });
 
-  app.get("/api/pilots/clinic-wellness/operator-workbenches", { preHandler: requirePerm('pilot.workbench.read') }, async request => {
+  app.get("/api/pilots/clinic-wellness/operator-workbenches", async request => {
     const user = await app.auth(request);
     requirePilotOperatorWorkbenchReader(user);
     return { workbenches: getPilotOperatorWorkbenches(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
-  app.post("/api/pilots/clinic-wellness/operator-workbenches", { preHandler: requirePerm('pilot.workbench.create') }, async request => {
+  app.post("/api/pilots/clinic-wellness/operator-workbenches", async request => {
     const user = await app.auth(request);
     requirePilotOperatorWorkbenchWriter(user);
     return createClinicWellnessOperatorWorkbench(db, user, request.body || {});
   });
 
-  app.get("/api/pilots/clinic-wellness/accountant-reviews", { preHandler: requirePerm('pilot.review.read') }, async request => {
+  app.get("/api/pilots/clinic-wellness/accountant-reviews", async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewReader(user);
     return { reviews: getPilotAccountantReviews(db, user.org_id, CLINIC_WELLNESS_TEMPLATE_KEY) };
   });
 
-  app.post("/api/pilots/clinic-wellness/accountant-reviews", { preHandler: requirePerm('pilot.review.create') }, async request => {
+  app.post("/api/pilots/clinic-wellness/accountant-reviews", async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewWriter(user);
     return createClinicWellnessAccountantReview(db, user, request.body || {});
   });
 
-  // rbac-migration-wave3: migrate-catalog-inventory owns nothing past the
-  // accountant-reviews route. The launch-readiness / launch-remediation /
-  // remediation-resolution / launch-clearance / paid-offers / quote-handoff
-  // / quote-release / quote-acceptance-handoff / hayhashvapah-drafts /
-  // hayhashvapah-posting / payment-collection / closeout / renewal-quote /
-  // next-renewal-quote / ... chain (and the related helper functions
-  // requirePilotLaunchReadiness*, requirePilotQuoteHandoff*, ...) remains
-  // on the legacy role-check helpers until a follow-up wave adds the
-  // corresponding permission keys.
   app.get("/api/pilots/clinic-wellness/launch-readiness", async request => {
     const user = await app.auth(request);
     requirePilotLaunchReadinessReader(user);
@@ -2453,9 +2312,7 @@ function registerApi(app, db, options = {}) {
     requireAppAccess(db, user, "crm");
     const status = normalizeCrmLeadStatusQuery(request.query || {});
     const leads = getCrmLeads(db, user.org_id, status);
-    // Wave 3 migration: redact customer tax_id from lead listings for callers
-    // who don't hold crm.account.read.
-    return { leads: redactFields(user, leads, ["crm.account.tax_id"]), summary: getCrmLeadSummary(db, user.org_id) };
+    return { leads, summary: getCrmLeadSummary(db, user.org_id) };
   });
 
   app.get("/api/crm/forecast", async request => {
@@ -2474,13 +2331,8 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
     const asOf = normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE);
-    const report = getReceivablesAging(db, user.org_id, "", asOf);
-    // Wave 3 migration: redact customer tax_id from each invoice in the
-    // report for callers who don't hold crm.account.read.
-    const redactedInvoices = redactFields(user, report.invoices || [], ["crm.account.tax_id"]);
     return {
-      ...report,
-      invoices: redactedInvoices,
+      ...getReceivablesAging(db, user.org_id, "", asOf),
       invoiceOverdueExplanations: canAccessInvoiceOverdueExplanation(user) ? getAiInvoiceOverdueExplanations(db, user.org_id) : []
     };
   });
@@ -2547,8 +2399,7 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireCrmEditor(user);
     const lead = createCrmLead(db, user, request.body);
-    // Wave 3 migration: redact tax_id from the response.
-    return { ok: true, lead: redactFields(user, lead, ["crm.account.tax_id"]), summary: getCrmLeadSummary(db, user.org_id) };
+    return { ok: true, lead, summary: getCrmLeadSummary(db, user.org_id) };
   });
 
   app.post("/api/crm/leads/:id/convert", async request => {
@@ -3970,11 +3821,7 @@ ${controls}
     return { ok: true, ...(await acceptPublicQuote(db, quote, request.body, { headers: request.headers, ip: client.ip })) };
   });
 
-  app.post("/api/finance/periods/:periodKey/close", {
-    // Wave 3 migration: enforce finance.period.lock at the preHandler stage.
-    // This is the canonical "may close a period" gate (critical sensitivity).
-    preHandler: rbacAuthAndPerm("finance.period.lock"),
-  }, async request => {
+  app.post("/api/finance/periods/:periodKey/close", async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const periodKey = normalizeFinancePeriodPathKey(request.params.periodKey);
@@ -4004,11 +3851,7 @@ ${controls}
     return { ok: true, period: getFinancePeriod(db, user.org_id, period.periodKey) };
   });
 
-  app.post("/api/finance/periods/:periodKey/reopen", {
-    // Wave 3 migration: enforce finance.period.unlock at the preHandler
-    // stage (critical sensitivity).
-    preHandler: rbacAuthAndPerm("finance.period.unlock"),
-  }, async request => {
+  app.post("/api/finance/periods/:periodKey/reopen", async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const periodKey = normalizeFinancePeriodPathKey(request.params.periodKey);
@@ -4044,11 +3887,7 @@ ${controls}
     return { draftInvoices: getFinanceDraftInvoices(db, user.org_id, customerId) };
   });
 
-  app.post("/api/finance/draft-invoices/:id/post", {
-    // Wave 3 migration: enforce finance.journal.post at the preHandler stage
-    // (critical sensitivity — locks the journal entry to the ledger).
-    preHandler: rbacAuthAndPerm("finance.journal.post"),
-  }, async request => {
+  app.post("/api/finance/draft-invoices/:id/post", async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const draftInvoiceId = normalizeFinanceDraftInvoicePathId(request.params.id);
@@ -4074,19 +3913,14 @@ ${controls}
     requireFinanceOperator(user);
     const customerId = normalizeFinanceListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
-    // Wave 3 migration: redact bank account numbers for callers who don't
-    // hold finance.bank.read.
-    const transactions = getFinanceBankTransactions(db, user.org_id, customerId);
-    return { transactions: redactFields(user, transactions, ["finance.bank.account_number", "finance.bank.routing"]) };
+    return { transactions: getFinanceBankTransactions(db, user.org_id, customerId) };
   });
 
   app.post("/api/finance/bank-transactions", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
     const result = createFinanceBankTransaction(db, user, request.body === undefined ? {} : request.body);
-    // Wave 3 migration: redact PII (account number) from the response.
-    const redacted = redactFields(user, result, ["finance.bank.account_number", "finance.bank.routing"]);
-    return { ok: true, ...redacted, events: getRecentSuiteEvents(db, user.org_id, 8, redacted.transaction.customerId) };
+    return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.transaction.customerId) };
   });
 
   app.post("/api/finance/bank-transactions/:id/reconcile", async request => {
@@ -4094,9 +3928,7 @@ ${controls}
     requireFinanceOperator(user);
     const transactionId = normalizeFinanceBankTransactionPathId(request.params.id);
     const result = await reconcileFinanceBankTransaction(db, user, transactionId);
-    // Wave 3 migration: redact PII (account number) from the response.
-    const redacted = redactFields(user, result, ["finance.bank.account_number", "finance.bank.routing"]);
-    return { ok: true, ...redacted, events: getRecentSuiteEvents(db, user.org_id, 8, redacted.transaction.customerId) };
+    return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.transaction.customerId) };
   });
 
   app.get("/api/finance/src-exports", async request => {
@@ -4611,15 +4443,7 @@ ${controls}
     return { runs };
   });
 
-  app.post("/api/payroll/run", {
-    // Wave 3 migration: enforce hr.payroll.run at the preHandler stage. This
-    // is the canonical "may run a payroll cycle" gate (critical sensitivity,
-    // dual-control / MFA-gated). Owner/Admin via implicit-all + PayrollClerk
-    // via PayrollOperator. Falls back to requireFinanceOperator inside the
-    // handler for the legacy role-list behavior; the preHandler is the new
-    // catalog-driven path.
-    preHandler: rbacAuthAndPerm("hr.payroll.run"),
-  }, async request => {
+  app.post("/api/payroll/run", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
     return postFinancePayrollRun(db, user, request.body === undefined ? {} : request.body);
@@ -4628,9 +4452,7 @@ ${controls}
   app.get("/api/people/employees", async request => {
     const user = await app.auth(request);
     const employees = db.prepare("SELECT id, full_name AS fullName, tax_id AS taxId, position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, hire_date AS hireDate, email, updated_at AS updatedAt FROM people_employees WHERE org_id = ? ORDER BY employment_status, full_name").all(user.org_id);
-    // Wave 3 migration: redact employee PII (SSN/tax_id) from the listing
-    // for callers who don't hold hr.employee.pii.read.
-    return { employees: employees.map(e => redactFields(user, e, ["hr.employee.ssn"])) };
+    return { employees };
   });
 
   app.post("/api/people/employees", async request => {
@@ -4682,27 +4504,7 @@ ${controls}
     return { sources: getLegalSources(db, user.org_id) };
   });
 
-  app.post("/api/legal/sources/:id/reviews", {
-    // Wave 3 migration: preHandler enforces the source-specific reviewer
-    // permission at the gateway. The key is chosen by sourceId inside
-    // requireLegalSourceReviewer (finance.tax.update for tax-code, otherwise
-    // compliance.legal.review).
-    preHandler: async (request, reply) => {
-      try {
-        const user = await request.server.auth(request);
-        request.user = user;
-        const sourceId = normalizeLegalSourcePathId(request.params.id, request.raw?.url);
-        requireLegalSourceReviewer(user, sourceId);
-      } catch (err) {
-        reply.code(err.statusCode || 403).send({
-          error: err.code || 'rbac_forbidden',
-          message: err.message,
-          required: err.required,
-          sensitivity: err.sensitivity,
-        });
-      }
-    },
-  }, async request => {
+  app.post("/api/legal/sources/:id/reviews", async request => {
     const user = await app.auth(request);
     const sourceId = normalizeLegalSourcePathId(request.params.id, request.raw?.url);
     requireLegalSourceReviewer(user, sourceId);
@@ -4756,23 +4558,14 @@ ${controls}
     return { export: packet };
   });
 
-  app.post("/api/admin/audit-exports", {
-    // Wave 3 migration: enforce security.audit.export at the preHandler stage
-    // (high sensitivity — gates a writeable audit export).
-    preHandler: rbacAuthAndPerm("security.audit.export"),
-  }, async request => {
+  app.post("/api/admin/audit-exports", async request => {
     const user = await app.auth(request);
     requireAuditExportWriter(user);
     const packet = createAuditExport(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, export: packet };
   });
 
-  app.post("/api/admin/access-reviews", {
-    // Wave 3 migration: enforce security.access.review at the preHandler
-    // stage (high sensitivity). Owner/Admin/Auditor via SecurityAdmin +
-    // ComplianceOperator.
-    preHandler: rbacAuthAndPerm("security.access.review"),
-  }, async request => {
+  app.post("/api/admin/access-reviews", async request => {
     const user = await app.auth(request);
     requireOwner(user);
     const review = createAccessReview(db, user, request.body === undefined ? {} : request.body);
@@ -5649,11 +5442,11 @@ function normalizeChoice(value, allowed, fallback) {
 }
 
 function requireOwner(user) {
-  // Wave 3 migration: replace the legacy `user.role === "Owner"` direct
-  // check with a catalog lookup. system.tenant.create is critical and
-  // Owner-only via the implicit-all shortcut, so it is the canonical
-  // "Owner escape hatch" key.
-  requirePermissionWithSensitivity(user, "system.tenant.create");
+  if (user.role !== "Owner") {
+    const err = new Error("Owner role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function validateAssignableAppRole(db, orgId, value) {
@@ -5741,11 +5534,12 @@ function getAssignableAppRoleSet(db, orgId) {
 }
 
 function requirePeopleWriter(user) {
-  // Wave 3 migration: catalog-driven. hr.employee.create is a high-sensitivity
-  // permission held by HROperator, plus the PIIEditor/HRLead paths via the
-  // role matrix. Accountant has it via FinanceOperator so the legacy Owner/
-  // Admin/Accountant set is preserved.
-  requirePermissionWithSensitivity(user, "hr.employee.create");
+  // Salary/employee master data is sensitive: only Owner/Admin/Accountant may write.
+  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
+    const err = new Error("People/HR writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function normalizePeopleEmployeePathId(value, rawUrl = "") {
@@ -5798,9 +5592,7 @@ function createPeopleEmployee(db, user, body) {
     now
   );
   audit(db, user.org_id, user.id, "people.employee.created", { employeeId: id, fullName: input.fullName });
-  // Wave 3 migration: redact PII (taxId) from the response unless the caller
-  // holds hr.employee.pii.read.
-  return { ok: true, employee: redactFields(user, getEmployee(db, user.org_id, id), ["hr.employee.ssn"]) };
+  return { ok: true, employee: getEmployee(db, user.org_id, id) };
 }
 
 function updatePeopleEmployee(db, user, employee, body) {
@@ -5829,9 +5621,7 @@ function updatePeopleEmployee(db, user, employee, body) {
   db.prepare(`UPDATE people_employees SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`)
     .run(...values, user.org_id, employee.id);
   audit(db, user.org_id, user.id, "people.employee.updated", { employeeId: employee.id });
-  // Wave 3 migration: redact PII (taxId) from the response unless the caller
-  // holds hr.employee.pii.read.
-  return { ok: true, employee: redactFields(user, getEmployee(db, user.org_id, employee.id), ["hr.employee.ssn"]) };
+  return { ok: true, employee: getEmployee(db, user.org_id, employee.id) };
 }
 
 function normalizeLegalLawSearchQuery(query) {
@@ -6603,40 +6393,51 @@ function requireMfaPrivilegedUser(user) {
 }
 
 function requireAccessReviewer(user) {
-  // Wave 3 migration: security.access.review is the catalog key for running
-  // user/role access reviews. Held by Owner/Admin via SystemAdmin and by
-  // Auditor via the compliance officer path.
-  requirePermissionWithSensitivity(user, "security.access.review");
+  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
+    const err = new Error("Access reviewer role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireSessionReviewer(user) {
-  // Wave 3 migration: session listing is the read half of the lifecycle;
-  // owners/auditors get it via their role matrices.
-  requirePermissionWithSensitivity(user, "security.session.list");
+  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
+    const err = new Error("Session reviewer role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireSessionAdmin(user) {
-  // Wave 3 migration: session revocation is a high-sensitivity action.
-  requirePermissionWithSensitivity(user, "security.session.revoke");
+  if (!["Owner", "Admin"].includes(user.role)) {
+    const err = new Error("Session administrator role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireAuditExportReader(user) {
-  // Wave 3 migration: the legacy Owner/Admin/Auditor set maps to
-  // security.audit.read which is held by those roles (via AuditOperator
-  // and the standard read paths).
-  requirePermissionWithSensitivity(user, "security.audit.read");
+  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
+    const err = new Error("Audit export reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireAuditReader(user) {
-  // Wave 3 migration: same catalog key as requireAuditExportReader — they
-  // differ only in export capability downstream.
-  requirePermissionWithSensitivity(user, "security.audit.read");
+  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
+    const err = new Error("Audit reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireAuditExportWriter(user) {
-  // Wave 3 migration: export is high-sensitivity; catalog key is
-  // security.audit.export.
-  requirePermissionWithSensitivity(user, "security.audit.export");
+  if (!["Owner", "Admin"].includes(user.role)) {
+    const err = new Error("Audit export writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireProductionReadinessReader(user) {
@@ -6648,47 +6449,30 @@ function requireProductionReadinessReader(user) {
 }
 
 function requireLegalSourceReviewer(user, sourceId) {
-  // Wave 3 migration: catalog-driven. The key depends on the source so each
-  // source's natural professional role satisfies the check:
-  //   - law-tax-code       → finance.tax.update      (Accountant has it via FinanceOperator)
-  //   - law-personal-data  → compliance.legal.review  (Lawyer has it via DocsOperator)
-  //   - law-esign          → compliance.legal.review  (Lawyer has it via DocsOperator)
-  //   - default            → compliance.legal.review  (Owner/Admin via ComplianceOperator)
-  // Owner still works for all sources via the implicit-all shortcut.
-  const permissionKey = sourceId === "law-tax-code"
-    ? "finance.tax.update"
-    : "compliance.legal.review";
-  requirePermissionWithSensitivity(user, permissionKey);
+  const allowed = legalSourceReviewerRoles(sourceId);
+  if (!allowed.includes(user.role)) {
+    const err = new Error("Professional legal source reviewer role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function legalSourceReviewerRoles(sourceId) {
-  // Wave 3 migration: kept for callers that need a label-level list (tests
-  // and one human-readable error path). The canonical gate is
-  // requireLegalSourceReviewer, which is catalog-driven.
   if (sourceId === "law-tax-code") return ["Owner", "Admin", "Accountant"];
   if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Owner", "Admin", "Lawyer"];
   return ["Owner", "Admin"];
 }
 
 function legalEvidenceOptions(user) {
-  // Wave 3 migration: catalog-driven. docs.evidence.export (or read) is the
-  // gate for seeing raw evidence payloads. Owner implicit-all + Lawyer via
-  // DocsOperator + Auditor via SecurityAdmin/ComplianceOperator.
-  return { includePayload: hasPermission(user, "docs.evidence.read") };
+  return { includePayload: ["Owner", "Admin", "Lawyer", "Auditor"].includes(user.role) };
 }
 
 function financeEvidenceOptions(user) {
-  // Wave 3 migration: catalog-driven. finance.journal.read or .post is the
-  // gate. Owner implicit-all + Accountant via FinanceOperator + Auditor via
-  // SecurityAdmin.
-  return { includePayload: hasPermission(user, "finance.journal.read") };
+  return { includePayload: ["Owner", "Admin", "Accountant", "Auditor"].includes(user.role) };
 }
 
 function eventFeedOptions(user) {
-  // Wave 3 migration: catalog-driven. security.audit.read is the gate.
-  // Owner implicit-all + Auditor via SecurityAdmin. Admin still has
-  // security.audit.read via SecurityAdmin as well.
-  return { includePayload: hasPermission(user, "security.audit.read") };
+  return { includePayload: ["Owner", "Admin", "Auditor"].includes(user.role) };
 }
 
 function requireIntegrationReader(user) {
@@ -8067,10 +7851,11 @@ function requirePilotNextRecurringOngoingRenewalCloseoutWriter(user) {
 }
 
 function requireCrmEditor(user) {
-  // Wave 3 migration: catalog-driven. crm.deal.create is the canonical "may
-  // edit CRM" gate — held by all legacy CRM-editor roles via CRMOperator
-  // (Operator, ServiceManager, SalesRep) and by Owner/Admin via implicit.
-  requirePermissionWithSensitivity(user, "crm.deal.create");
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
+    const err = new Error("CRM editor role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireCatalogReader(user) {
@@ -8166,17 +7951,19 @@ function requireWorkflowBuilderSuggestionAccess(user) {
 }
 
 function requireCollectionEditor(user) {
-  // Wave 3 migration: catalog-driven. crm.quote.send is the gate for
-  // collection actions (sending dunning/quotes/etc.) — held by all legacy
-  // collection-editor roles via CRMOperator + FinanceOperator for Accountant.
-  requirePermissionWithSensitivity(user, "crm.quote.send");
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Accountant"].includes(user.role)) {
+    const err = new Error("Collection editor role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireFinanceOperator(user) {
-  // Wave 3 migration: catalog-driven. finance.journal.create is the
-  // canonical "may operate finance" gate — held by Accountant via
-  // FinanceOperator and by Owner/Admin via implicit-all.
-  requirePermissionWithSensitivity(user, "finance.journal.create");
+  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
+    const err = new Error("Finance operator role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireWorkflowOperator(user) {
@@ -8196,24 +7983,22 @@ function requireServiceSupervisor(user) {
 }
 
 function requireAnalyticsSnapshotWriter(user) {
-  // Wave 3 migration: catalog-driven. analytics.snapshot.create is held
-  // by Accountant/Admin/Owner via ReportBuilder (and Owner/Admin via implicit).
-  requirePermissionWithSensitivity(user, "analytics.snapshot.create");
+  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
+    const err = new Error("Analytics snapshot writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireAnalyticsReportReader(user) {
-  // Wave 3 migration: catalog-driven. analytics.report.read is the gate.
-  // The legacy `visibleAnalyticsReportTypes` data shape (owner/accountant
-  // scope) is preserved by visibleAnalyticsReportTypes() below.
-  requirePermissionWithSensitivity(user, "analytics.report.read");
+  if (visibleAnalyticsReportTypes(user).length === 0) {
+    const err = new Error("Analytics report reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function requireAnalyticsReportWriter(user, reportType) {
-  // Wave 3 migration: catalog-driven. analytics.report.write is the access
-  // gate. The per-role allowed-types restriction (Accountant → "accountant"
-  // only; Owner/Admin → both) is a *data-shape* constraint, not an access
-  // decision, and is kept as a separate check below.
-  requirePermissionWithSensitivity(user, "analytics.report.write");
   const allowed = user.role === "Accountant"
     ? ["accountant"]
     : ["Owner", "Admin"].includes(user.role)
@@ -8227,8 +8012,6 @@ function requireAnalyticsReportWriter(user, reportType) {
 }
 
 function visibleAnalyticsReportTypes(user) {
-  // Wave 3 migration note: returns scope *labels* the user is allowed to see
-  // (not an access gate). The actual access check is requireAnalyticsReportReader.
   if (["Owner", "Admin", "Auditor"].includes(user.role)) return ["owner", "accountant"];
   if (user.role === "Accountant") return ["accountant"];
   return [];
@@ -47318,10 +47101,6 @@ function isProfessionalLegalSourceReady(source) {
 }
 
 function requiredProfessionalReviewerRoles(sourceId) {
-  // Wave 3 migration note: this returns role *labels* for the persisted
-  // review record (e.g. "Accountant" must have signed the tax-code review).
-  // It is a data-shape constraint, not an access gate. The actual access
-  // check is requireLegalSourceReviewer, which is catalog-driven.
   if (sourceId === "law-tax-code") return ["Accountant"];
   if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Lawyer"];
   return ["Owner", "Admin"];
