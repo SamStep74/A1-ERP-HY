@@ -1112,6 +1112,69 @@ const PERMISSION_SETS = Object.freeze({
       'system.integrations.read',
     ]),
   },
+
+  // ─────────── Wave 7 narrow grant sets ───────────
+  //
+  // These perm sets were added in Wave 7 to collapse the 10 BROAD GRANT
+  // findings flagged by scripts/lint-rbac-broad-grants.js on the
+  // catalog + inventory routes. Each set holds a single perm (or a
+  // tightly-coupled read/write pair) and is granted only to the roles
+  // the plan's grant_to_roles list specifies. The legacy `requireXxx`
+  // helpers (requireCatalogReader, requireCatalogWriter,
+  // requireInventoryReader, requireInventoryWriter) continue to enforce
+  // the same allow-list at runtime, but the catalog-driven
+  // preHandler: requirePerm(...) migration can now mirror the allow-list
+  // exactly without silently widening access.
+  //
+  // The relationship to the legacy allow-lists is:
+  //   CatalogReader   → requireCatalogReader   (Owner, Admin, Operator, Salesperson, Accountant, Service Manager; Salesperson now maps to SalesLead/SalesManager/SalesRep)
+  //   CatalogEditor   → requireCatalogWriter   (Owner, Admin, Operator, Salesperson; Service Manager added in the plan for parity with the sales/service set)
+  //   StockReader     → requireInventoryReader (Owner, Admin, Operator, Accountant, Auditor; FinanceLead/InventoryLead/PurchaseLead/Purchaser/WarehouseClerk added in the plan for parity with the inventory/purchase set)
+  //   StockReceiver   → requireInventoryWriter (Owner, Admin, Operator, Accountant; InventoryLead/PurchaseLead/Purchaser/WarehouseClerk added in the plan for parity with the inventory/purchase set)
+  //
+  // Do not add extra perms or roles to these sets without re-running
+  // scripts/lint-rbac-broad-grants.js and re-locking the snapshot.
+
+  CatalogReader: {
+    id: 'CatalogReader',
+    label: 'Catalog Reader',
+    description: 'Read catalog items, categories, price lists, margin rules. Narrow grant — Owner, Admin, Accountant, Auditor, Operator, SalesLead, SalesManager, SalesRep, ServiceManager (mirrors the legacy requireCatalogReader allow-list mapped to current role names).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'inv.product.read',
+    ]),
+  },
+
+  CatalogEditor: {
+    id: 'CatalogEditor',
+    label: 'Catalog Editor',
+    description: 'Create and update catalog items. Narrow grant — Owner, Admin, Operator, SalesLead, SalesManager, SalesRep, ServiceManager (mirrors the legacy requireCatalogWriter allow-list mapped to current role names).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'inv.product.create',
+      'inv.product.update',
+    ]),
+  },
+
+  StockReader: {
+    id: 'StockReader',
+    label: 'Stock Reader',
+    description: 'Read stock locations, quantities, and movements. Narrow grant — Owner, Admin, Accountant, Auditor, Operator, FinanceLead, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk (mirrors the legacy requireInventoryReader allow-list plus the inventory/purchase functional leads).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'inv.stock.read',
+    ]),
+  },
+
+  StockReceiver: {
+    id: 'StockReceiver',
+    label: 'Stock Receiver',
+    description: 'Receive stock movements (inbound, adjustments). Narrow grant — Owner, Admin, Accountant, Operator, InventoryLead, PurchaseLead, Purchaser, WarehouseClerk (mirrors the legacy requireInventoryWriter allow-list plus the inventory/purchase functional leads).',
+    isSystem: true,
+    permissions: Object.freeze([
+      'inv.stock.receive',
+    ]),
+  },
 });
 
 function listPermissionSetIds() {

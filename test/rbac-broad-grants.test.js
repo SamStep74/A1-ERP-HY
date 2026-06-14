@@ -413,22 +413,32 @@ const ANNOTATED_SITES = [
   // mfa routes — annotated above the preHandler line in server/app.js
   { method: 'POST', path: '/api/security/mfa/enroll',           permKey: 'security.mfa.configure', expectedRoles: ['Owner', 'Admin'] },
   { method: 'POST', path: '/api/security/mfa/verify-enrollment',permKey: 'security.mfa.configure', expectedRoles: ['Owner', 'Admin'] },
-  // catalog read — all 6 routes share the same requireCatalogReader helper
-  { method: 'GET',  path: '/api/catalog/categories',           permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
-  { method: 'GET',  path: '/api/catalog/price-lists',          permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
-  { method: 'GET',  path: '/api/catalog/pricing/resolve',      permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
-  { method: 'GET',  path: '/api/catalog/margin-rules',         permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
-  { method: 'GET',  path: '/api/catalog/items',                permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
-  { method: 'GET',  path: '/api/catalog/items/:id',            permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson', 'Accountant', 'Service Manager'] },
-  // catalog write — 2 routes share requireCatalogWriter
-  { method: 'POST', path: '/api/catalog/items',                permKey: 'inv.product.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson'] },
-  { method: 'PATCH',path: '/api/catalog/items/:id',            permKey: 'inv.product.update',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Salesperson'] },
-  // inventory read — 3 routes share requireInventoryReader
-  { method: 'GET',  path: '/api/inventory/locations',          permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
-  { method: 'GET',  path: '/api/inventory/stock',              permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
-  { method: 'GET',  path: '/api/inventory/moves',              permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
-  // inventory write — 1 route uses requireInventoryWriter
-  { method: 'POST', path: '/api/inventory/moves',              permKey: 'inv.stock.receive',      expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  // catalog read — all 6 routes share CatalogReader perm set
+  // (Wave 7 — legacy "Salesperson" → SalesLead/SalesManager/SalesRep,
+  //  "Service Manager" → ServiceManager; remaining roles hold the perm
+  //  via the broad InventoryOperator / ReadOnly perm sets)
+  { method: 'GET',  path: '/api/catalog/categories',           permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/catalog/price-lists',          permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/catalog/pricing/resolve',      permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/catalog/margin-rules',         permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/catalog/items',                permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/catalog/items/:id',            permKey: 'inv.product.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  // catalog write — 2 routes share CatalogEditor perm set
+  // (Wave 7 — legacy "Salesperson" → SalesLead/SalesManager/SalesRep;
+  //  Auditor is NOT in the legacy catalog-write allow-list)
+  { method: 'POST', path: '/api/catalog/items',                permKey: 'inv.product.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'PATCH',path: '/api/catalog/items/:id',            permKey: 'inv.product.update',     expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'ServiceManager', 'Accountant', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  // inventory read — 3 routes share StockReader perm set
+  // (Wave 7 — ServiceManager is NOT in the legacy inventory allow-list;
+  //  remaining non-Owner/Admin/Operator roles hold the perm via the
+  //  broad InventoryOperator / ReadOnly perm sets)
+  { method: 'GET',  path: '/api/inventory/locations',          permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/inventory/stock',              permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  { method: 'GET',  path: '/api/inventory/moves',              permKey: 'inv.stock.read',         expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
+  // inventory write — 1 route uses StockReceiver perm set
+  // (Wave 7 — ServiceManager and Auditor are NOT in the legacy
+  //  stock.receive allow-list)
+  { method: 'POST', path: '/api/inventory/moves',              permKey: 'inv.stock.receive',      expectedRoles: ['Owner', 'Admin', 'Operator', 'SalesLead', 'SalesManager', 'SalesRep', 'Accountant', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'WarehouseClerk'] },
   // purchase read — 3 routes share requirePurchaseReader
   { method: 'GET',  path: '/api/purchase/orders',              permKey: 'purchase.po.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
   { method: 'GET',  path: '/api/purchase/vendors',             permKey: 'purchase.vendor.read',   expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },

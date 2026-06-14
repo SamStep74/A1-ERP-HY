@@ -176,6 +176,12 @@ const ROLE_MATRIX = Object.freeze({
     // Wave 5 narrow-grant perm sets — mirror the legacy requireCrmEditor /
     // requireCollectionEditor allow-lists.
     'DealCreator', 'QuoteSender',
+    // Wave 7 narrow-grant perm sets — Operator doesn't hold the broad
+    // InventoryOperator perm set, so it needs the dedicated narrow sets
+    // for catalog read/write and stock read/receive to match the legacy
+    // requireCatalogReader/Writer and requireInventoryReader/Writer
+    // allow-lists.
+    'CatalogReader', 'CatalogEditor', 'StockReader', 'StockReceiver',
   ]),
   ServiceManager:  Object.freeze([
     'DeskOperator', 'DeskAdmin', 'CRMOperator', 'DocsOperator', 'ReportBuilder', 'AIEnabled', 'StandardUser',
@@ -183,6 +189,12 @@ const ROLE_MATRIX = Object.freeze({
     // requireCollectionEditor allow-lists (Service Manager maps to
     // ServiceManager).
     'DealCreator', 'QuoteSender',
+    // Wave 7 narrow-grant perm sets — ServiceManager doesn't hold the
+    // broad InventoryOperator perm set, so it needs the dedicated narrow
+    // sets for catalog read/write to match the legacy
+    // requireCatalogReader/Writer allow-lists (Service Manager is in the
+    // legacy allow-list for catalog but NOT for inventory/stock).
+    'CatalogReader', 'CatalogEditor',
   ]),
 
   // ───────── External / Customer ─────────
