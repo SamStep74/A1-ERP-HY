@@ -436,7 +436,7 @@ in `e985b43` (single line — backticks removed from the comment).
 
 Pushed `33feea7..6529b3e` to `origin/main`.
 
-## Wave 7 — In flight (narrow 23 BROAD GRANTs)
+## Wave 7 — COMPLETE + PUSHED (narrow 21 of 23 BROAD GRANTs)
 
 Launched at 2026-06-14T15:46Z in tmux session `a1-erp-hy-wave7`
 (4 windows: `main` orchestrator + 3 workers). Workers branched
@@ -454,13 +454,50 @@ JSON: [.orchestration/a1-erp-hy-wave7.json](../.orchestration/a1-erp-hy-wave7.js
 
 Workers A & C both touch `matrix.js` + `roleMatrix.js` but on disjoint perm sets / role array entries, so octopus merge is safe. Worker B is fully isolated (touches only `permissions.js`).
 
-Target after merge: **0 BROAD, 0 UNKNOWN, 39 PASS, 9 NO LEGACY**.
+**Outcome:** Workers A and C landed commits (`b08aada` and `5626929`).
+Worker B (add-inventory-adjust-perms) hit the silent-success failure
+mode (agent exited 0 without producing work). Worktrees salvaged,
+rebased onto main, octopus-merged in `bbeda46` (Worker A) and
+`ed969ca` (Worker C). Conflicts in `matrix.js` and `roleMatrix.js`
+were resolved by hand-merging both branches' additions into a single
+block under the Wave 7 header comment (12 new perm sets total).
+The auto-generated snapshot + audit were regenerated and committed
+in `d5a3f28`.
 
-## Wave 8+ — TO PLAN
+**Post-Wave-7 verification (on `d5a3f28`):**
+- `node --test test/api.test.js` → 233/233 pass
+- `node --test test/rbac-broad-grants.test.js test/rbac-migration.test.js` → 71/71 pass
+- `node scripts/lint-rbac-broad-grants.js` → **37 PASS / 2 BROAD / 9 NO LEGACY / 0 UNKNOWN**
 
-1. **Annotate the 9 NO LEGACY sites** (Wave 8) — routes without `// rbac-audit: expected-roles` comments. Add the annotation after a manual review of the route's intent.
-2. **Phase 1 — Inventory** (Wave 9+): stock movements, valuation methods (FIFO/LIFO/WAC), reservations, cycle counts.
-3. **Phase 2 — Purchasing** (Wave 10+): purchase orders, vendor bills, three-way matching (PO ↔ receipt ↔ invoice).
-4. **Phase 3 — Manufacturing** (Wave 11+): BOMs, work orders, shop floor.
-5. **Phase 4 — Reports & analytics** (Wave 12+): report builder, pivot tables, scheduled reports.
+**Delta from start of Wave 7:** 16 → 37 PASS (+21), 23 → 2 BROAD (-21),
+9 → 9 NO LEGACY (no change), 0 → 0 UNKNOWN (no change).
+
+Pushed `6903c90..d5a3f28` to `origin/main`.
+
+**Remaining work for Wave 8:**
+1. **2 remaining BROAD grants** (CRM-related, were in Wave 5 scope): `crm.deal.create` (extra: SalesLead/SalesManager/SalesRep/ServiceManager) and `crm.quote.send` (same extras). These were reduced by the Wave 5 `DealCreator`/`QuoteSender` narrow sets but the wide `requireCrmEditor` / `requireCollectionEditor` helpers still grant them. The remaining fix is route-level: convert the routes that use these wide helpers to use `requirePerm` with the narrow perm keys.
+2. **9 NO LEGACY sites** (1 helper + 8 pilot routes): `requireAnalyticsReportReader` + 4 read/4 write `/api/pilots/clinic-wellness/*` routes need `// rbac-audit: expected-roles` annotations.
+3. **The Worker B work (inventory adjust perm keys)** is small enough to fold into Wave 8.
+
+## Wave 8 — PLANNED (mop up the RBAC catalog)
+
+Goal: drive the linter to **39 PASS / 0 BROAD / 0 UNKNOWN / 9 NO LEGACY** (or lower NO LEGACY if Worker A manages to annotate some).
+
+3 workers, each touching disjoint files:
+
+- **Worker A** `narrow-crm-broad-grants` — convert the 2 remaining wide-helper CRM routes to `requirePerm` using the existing `DealCreator` and `QuoteSender` narrow perm sets. Routes in scope: any `app.post('/api/crm/...')` or `app.post('/api/collection/...')` that uses `preHandler: requireCrmEditor` or `preHandler: requireCollectionEditor` and does NOT already use `requirePerm`. Touches `server/app.js` only.
+- **Worker B** `annotate-no-legacy-sites` — add `// rbac-audit: expected-roles Owner, Admin, ...` annotations to the 9 NO LEGACY sites (1 helper body + 8 pilot route handlers). Touches `server/app.js` only. The annotations are documentation that the linter reads; no behavior change.
+- **Worker C** `add-inventory-adjust-perms` — finish the Wave 7 Worker B work. Register the missing perm keys (`inv.stock.adjust`, `inv.stock.deliver`, `inv.stock.transfer`, `inv.stock.scrap`, `inv.stock.count`, `inv.product.delete`, `inv.valuation.run`) in `server/rbac/permissions.js`. Touches only that file.
+
+Workers A and B both touch `server/app.js` but on disjoint line ranges (Worker A: CRM/collection routes; Worker B: pilot + analytics-report routes). Rebase + merge order: B first, A second, C last (C touches only `permissions.js` so it can go in any order).
+
+## Wave 9+ — TO PLAN
+
+1. **Phase 1 — Inventory** (Wave 9+): stock movements, valuation methods (FIFO/LIFO/WAC), reservations, cycle counts. The schema for `inv.stock.*` and `inv.product.delete` is now in the catalog.
+2. **Phase 2 — Purchasing** (Wave 10+): three-way matching (PO ↔ receipt ↔ invoice). Schema for `purchase.*` is now in the catalog.
+3. **Phase 3 — Manufacturing** (Wave 11+): BOMs, work orders, shop floor.
+4. **Phase 4 — Reports & analytics** (Wave 12+): report builder, pivot tables, scheduled reports.
+5. **Three-level hierarchy** (Wave 13+): Tenant → Organization → Company, if needed for multi-tenant/multi-company rollouts.
+6. **RBAC UI** (Wave 14+): a frontend for managing roles, permission sets, and user assignments.
+7. **Deal ↔ Inventory ↔ Vendor foreign keys** (Wave 15+): wire the sales_orders, inventory, and purchase tables together so a deal drives stock reservation + auto-reorder.
 
