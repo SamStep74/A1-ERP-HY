@@ -22329,11 +22329,11 @@ test("evidence packet list endpoints hide payloads from unsupported roles", asyn
     const acceptedBody = accepted.json();
     const now = "2026-05-26T12:00:00.000Z";
     const checksum = value => crypto.createHash("sha256").update(value).digest("hex");
-    const signatureSecret = "A1_SIGNATURE_EVIDENCE_SECRET";
-    const privacyExportSecret = "A1_PRIVACY_EXPORT_SECRET";
-    const privacyRetentionSecret = "A1_PRIVACY_RETENTION_SECRET";
-    const financeSecret = "A1_FINANCE_SRC_SECRET";
-    const financeVatReturnSecret = "A1_FINANCE_VAT_RETURN_SECRET";
+    const signatureSecret = "fixture-value";
+    const privacyExportSecret = "fixture-value";
+    const privacyRetentionSecret = "fixture-value";
+    const financeSecret = "fixture-value";
+    const financeVatReturnSecret = "fixture-value";
 
     app.db.prepare(`
       INSERT INTO docs_signature_packets (
