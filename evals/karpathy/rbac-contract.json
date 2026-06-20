@@ -1,0 +1,57 @@
+{
+  "id": "rbac-contract",
+  "productName": "SamStep74 A1 ERP HY RBAC and access-control surface",
+  "runTag": "2026-06-20-rbac-contract",
+  "branchPrefix": "karpathy/",
+  "editableFiles": [
+    "server/rbac/guards.js",
+    "server/rbac/helper-audit-map.json",
+    "server/rbac/index.js",
+    "server/rbac/matrix.js",
+    "server/rbac/permissions.js",
+    "server/rbac/roleMatrix.js",
+    "server/rbac/routes.js",
+    "server/rbac/roles.js",
+    "server/rbac/seed.js",
+    "server/rbac/schema.sql"
+  ],
+  "readOnlyFiles": [
+    "scripts/check-rbac-contract.mjs",
+    "scripts/lint-rbac.js",
+    "test/rbac.test.js",
+    "test/open-endpoints-rbac.test.js",
+    "test/finance-rbac.test.js",
+    "test/rbac-broad-grants.test.js",
+    "test/auditor-readonly-coverage.test.js"
+  ],
+  "contextFiles": [
+    "README.md",
+    "AGENTS.md",
+    "docs/RBAC_SYSTEM.md",
+    "docs/CATALOG_GRANT_AUDIT.md",
+    "server/rbac/index.js",
+    "server/rbac/permissions.js",
+    "server/rbac/roleMatrix.js"
+  ],
+  "guardrails": [
+    "Keep RBAC fail-closed: authenticated write endpoints must require explicit permission checks.",
+    "Do not broaden finance, tenant, session, audit, or integration permissions to make tests pass.",
+    "Preserve intentionally open service/privacy/legal endpoints pinned by open-endpoints-rbac tests.",
+    "Keep permission keys catalog-driven and keep helper audit mappings in sync with route behavior.",
+    "Do not add network calls, environment-dependent auth bypasses, or database migrations outside the RBAC surface."
+  ],
+  "eval": {
+    "command": "node",
+    "args": [
+      "scripts/check-rbac-contract.mjs"
+    ],
+    "metric": {
+      "name": "failing_checks",
+      "direction": "minimize"
+    },
+    "successMetricValue": 0,
+    "failureMetricValue": 1,
+    "timeBudgetMinutes": 5,
+    "timeoutMinutes": 10
+  }
+}

@@ -23,6 +23,7 @@ web/dist/
 
 # Reports / logs
 reports/
+evals/karpathy/results/
 deploy/*.log
 *.log
 

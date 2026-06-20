@@ -159,3 +159,19 @@ Mac or client machine.
 ```bash
 npm test
 ```
+
+## Karpathy Eval Harness
+
+This repo exposes a narrow product-research contract for the RBAC and access-control
+surface:
+
+```bash
+npm run karpathy:list
+npm run karpathy:program -- rbac-contract
+npm run karpathy:run -- rbac-contract --best 0
+```
+
+The `rbac-contract` eval wraps the focused RBAC, finance-gate, and broad-grant
+characterization tests with `failing_checks` as a minimize metric. The eval keeps
+the editable surface limited to RBAC implementation files and treats the selected
+tests plus audit fixtures as read-only guardrails.
