@@ -11,11 +11,14 @@ const testFiles = [
   "test/open-endpoints-rbac.test.js",
   "test/finance-rbac.test.js",
   "test/rbac-broad-grants.test.js",
+  "test/auditor-readonly-coverage.test.js",
 ];
-const expectedTestCount = 69;
+const expectedTestCount = 71;
 const requiredTitles = [
   "finance RBAC: a read-only Auditor cannot post to the ledger (403 on all 4 write endpoints)",
   "finance RBAC: an Accountant (finance operator) can still post to the ledger (200)",
+  "auditor-readonly: the read-only Auditor is denied (403) on every core-domain write",
+  "auditor-readonly: the same Auditor CAN still read (sanity — it is read-only, not locked out)",
   "open endpoints: a non-privileged Support agent can open a service case (200, not 403)",
   "open endpoints: a Salesperson can file a privacy request (200, not 403)",
   "open endpoints: an Operator can ask a legal question (not 403)",
