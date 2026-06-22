@@ -201,6 +201,59 @@ test("existing quote line tables receive catalog columns before app startup inde
   }
 });
 
+test("existing purchase order tables receive vendor columns before vendor indexes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-purchase-vendor-layer-"));
+  const dbPath = path.join(root, "suite.sqlite");
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.exec(`
+      CREATE TABLE purchase_orders (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        order_number TEXT NOT NULL,
+        supplier TEXT NOT NULL,
+        supplier_tax_id TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        subtotal INTEGER NOT NULL DEFAULT 0,
+        vat INTEGER NOT NULL DEFAULT 0,
+        total INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL,
+        order_date TEXT NOT NULL,
+        expected_date TEXT NOT NULL,
+        confirmed_at TEXT,
+        received_at TEXT,
+        bill_id TEXT,
+        receipt_reference TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        created_by_user_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(org_id, order_number)
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const app = buildApp({ dbPath });
+  await app.ready();
+  try {
+    const columns = new Set(app.db.prepare("PRAGMA table_info(purchase_orders)").all().map(column => column.name));
+    assert.equal(columns.has("vendor_id"), true);
+    for (const name of [
+      "idx_purchase_orders_vendor",
+      "idx_purchase_orders_vendor_recent",
+      "idx_purchase_orders_vendor_receipts"
+    ]) {
+      const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name);
+      assert.equal(index.name, name);
+    }
+  } finally {
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("global audit feed is limited to audit reader roles", async () => {
   await withApp(async app => {
     const unauthenticated = await app.inject({ method: "GET", url: "/api/audit" });

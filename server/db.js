@@ -1640,6 +1640,9 @@ function initSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS idx_bill_payments_bill
+      ON bill_payments(org_id, bill_id);
+
     CREATE TABLE IF NOT EXISTS finance_bank_transactions (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7652,9 +7655,12 @@ function ensurePurchaseLayer(db) {
   const purchaseOrderColumns = new Set(db.prepare("PRAGMA table_info(purchase_orders)").all().map(column => column.name));
   if (!purchaseOrderColumns.has("vendor_id")) db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders(org_id, vendor_id, status)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor_recent ON purchase_orders(org_id, vendor_id, order_date DESC, created_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor_receipts ON purchase_orders(org_id, vendor_id, expected_date, created_at, status)");
 
   const purchaseOrderLineColumns = new Set(db.prepare("PRAGMA table_info(purchase_order_lines)").all().map(column => column.name));
   if (!purchaseOrderLineColumns.has("vendor_price_id")) db.exec("ALTER TABLE purchase_order_lines ADD COLUMN vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_order ON purchase_order_lines(org_id, purchase_order_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
   db.exec(`

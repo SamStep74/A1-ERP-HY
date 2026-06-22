@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-22T18:43:05.073Z`
+Generated: `2026-06-22T19:25:29.382Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,12 +14,12 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 56 |
+| PASS — perm grants ⊆ legacy allow-list | 59 |
 | BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
 | NO LEGACY ALLOW-LIST — needs manual annotation | 0 |
 | UNKNOWN PERM KEY — not in current catalog | 0 |
 
-Total entries audited: **56**
+Total entries audited: **59**
 
 ## PASS — perm grants ⊆ legacy allow-list
 
@@ -73,6 +73,9 @@ Total entries audited: **56**
 | `POST /api/purchase/orders/:id/match/recompute` | `purchase.po.update` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
 | `GET /api/purchase/matches/receipts` | `purchase.analytics.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
 | `GET /api/purchase/matches/bills` | `purchase.analytics.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
+| `GET /api/purchase/vendors/:id/360` | `purchase.vendor_360.read` | `Owner`, `Admin`, `Accountant`, `Auditor`, `FinanceLead`, `InventoryLead`, `PurchaseLead`, `Purchaser` | `Accountant`, `Admin`, `Auditor`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser` |
+| `GET /api/purchase/vendors/:id/recent-orders` | `purchase.po.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
+| `GET /api/purchase/vendors/:id/price-history` | `purchase.pricelist.read` | `Owner`, `Admin`, `Accountant`, `Auditor`, `FinanceLead`, `InventoryLead`, `PurchaseLead`, `Purchaser` | `Accountant`, `Admin`, `Auditor`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser` |
 | `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |
 | `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | `Owner`, `Admin`, `Salesperson` | _(empty)_ |
 | `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |

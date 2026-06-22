@@ -3,11 +3,11 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 56,
+    "pass": 59,
     "broad": 0,
     "no-legacy": 0,
     "unknown-key": 0,
-    "total": 56
+    "total": 59
   },
   "findings": [
     {
@@ -1065,6 +1065,78 @@
         "Auditor",
         "Operator",
         "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/vendors/:id/360",
+      "permKey": "purchase.vendor_360.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/vendors/:id/recent-orders",
+      "permKey": "purchase.po.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/vendors/:id/price-history",
+      "permKey": "purchase.pricelist.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
       ],
       "extraRoles": []
     },

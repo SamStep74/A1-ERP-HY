@@ -460,6 +460,9 @@ const ANNOTATED_SITES = [
   { method: 'POST', path: '/api/purchase/orders/:id/match/recompute',     permKey: 'purchase.po.update',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
   { method: 'GET',  path: '/api/purchase/matches/receipts',               permKey: 'purchase.analytics.read',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
   { method: 'GET',  path: '/api/purchase/matches/bills',                  permKey: 'purchase.analytics.read',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/purchase/vendors/:id/360',                permKey: 'purchase.vendor_360.read', expectedRoles: ['Owner', 'Admin', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
+  { method: 'GET',  path: '/api/purchase/vendors/:id/recent-orders',      permKey: 'purchase.po.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/purchase/vendors/:id/price-history',      permKey: 'purchase.pricelist.read', expectedRoles: ['Owner', 'Admin', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
 ];
 
 for (const site of ANNOTATED_SITES) {

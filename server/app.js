@@ -140,9 +140,10 @@ const {
   publicPlatformTenantSummary,
   sanitizePlatformError
 } = require("./platformTenant");
-const { requirePerm } = require("./rbac/guards");
+const { hasPermission, requirePerm } = require("./rbac/guards");
 const { pickBestVendor, suggestionToPoBody } = require("./purchasing/reorder-suggester");
 const { matchReceipt, matchPrice } = require("./purchasing/three-way-match");
+const { buildVendor360 } = require("./purchasing/vendor-360");
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -811,6 +812,40 @@ function registerApi(app, db, options = {}) {
     ],
   }, async request => {
     return { vendors: getPurchaseVendors(db, request.user.org_id) };
+  });
+
+  // Wave 10 Worker C — read-only vendor relationship views.
+  // rbac-audit: expected-roles Owner, Admin, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser
+  app.get("/api/purchase/vendors/:id/360", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.vendor_360.read"),
+    ],
+  }, async request => {
+    const vendorId = normalizePurchasePathId(request.params.id);
+    return getPurchaseVendor360(db, request.user, vendorId);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
+  app.get("/api/purchase/vendors/:id/recent-orders", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.read"),
+    ],
+  }, async request => {
+    const vendorId = normalizePurchasePathId(request.params.id);
+    return { orders: getPurchaseVendorRecentOrders(db, request.user.org_id, vendorId) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser
+  app.get("/api/purchase/vendors/:id/price-history", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.pricelist.read"),
+    ],
+  }, async request => {
+    const vendorId = normalizePurchasePathId(request.params.id);
+    return { prices: getPurchaseVendorPriceHistory(db, request.user.org_id, vendorId) };
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
@@ -50425,6 +50460,210 @@ function getPurchaseVendorPrices(db, orgId, vendorId) {
   `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
 }
 
+function getPurchaseVendorPriceHistory(db, orgId, vendorId) {
+  if (!getPurchaseVendor(db, orgId, vendorId)) throwPurchaseVendorNotFound();
+  return db.prepare(`
+    SELECT purchase_vendor_prices.*, catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure
+    FROM purchase_vendor_prices
+    JOIN catalog_items ON catalog_items.id = purchase_vendor_prices.catalog_item_id
+      AND catalog_items.org_id = purchase_vendor_prices.org_id
+    WHERE purchase_vendor_prices.org_id = ? AND purchase_vendor_prices.vendor_id = ?
+    ORDER BY purchase_vendor_prices.valid_from DESC,
+      purchase_vendor_prices.created_at DESC,
+      catalog_items.sku,
+      purchase_vendor_prices.min_quantity
+    LIMIT 25
+  `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
+}
+
+function getPurchaseVendorOrders(db, orgId, vendorId, limit = 0) {
+  if (!getPurchaseVendor(db, orgId, vendorId)) throwPurchaseVendorNotFound();
+  const maxRows = Math.max(0, Math.min(1000, Number(limit || 0)));
+  const rows = db.prepare(`
+    SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
+      bills.status AS bill_status, users.name AS created_by_name
+    FROM purchase_orders INDEXED BY idx_purchase_orders_vendor_recent
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = purchase_orders.vendor_id
+      AND purchase_vendors.org_id = purchase_orders.org_id
+    LEFT JOIN bills ON bills.id = purchase_orders.bill_id AND bills.org_id = purchase_orders.org_id
+    LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
+    WHERE purchase_orders.org_id = ? AND purchase_orders.vendor_id = ?
+    ORDER BY purchase_orders.order_date DESC, purchase_orders.created_at DESC
+    ${maxRows ? "LIMIT ?" : ""}
+  `).all(...(maxRows ? [orgId, vendorId, maxRows] : [orgId, vendorId]));
+  return rows.map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)));
+}
+
+function getPurchaseVendorRecentOrders(db, orgId, vendorId) {
+  return getPurchaseVendorOrders(db, orgId, vendorId, 10);
+}
+
+function getPurchaseVendorOrderSummary(db, orgId, vendorId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS order_count,
+      COALESCE(SUM(CASE WHEN status NOT IN ('billed', 'cancelled') THEN 1 ELSE 0 END), 0) AS open_po_count,
+      COALESCE(SUM(CASE WHEN status IN ('confirmed', 'partial') THEN 1 ELSE 0 END), 0) AS open_receipt_count,
+      COALESCE(MAX(order_date), '') AS last_po_date
+    FROM purchase_orders
+    WHERE org_id = ? AND vendor_id = ?
+  `).get(orgId, vendorId);
+  return {
+    orderCount: Number(row?.order_count || 0),
+    openPoCount: Number(row?.open_po_count || 0),
+    openReceiptCount: Number(row?.open_receipt_count || 0),
+    lastPoDate: row?.last_po_date || ""
+  };
+}
+
+function getPurchaseVendor360(db, user, vendorId) {
+  const orgId = user.org_id;
+  const vendor = getPurchaseVendor(db, orgId, vendorId);
+  if (!vendor) throwPurchaseVendorNotFound();
+  const canReadOrders = hasPermission(user, "purchase.po.read");
+  const canReadBills = hasPermission(user, "finance.bill.read");
+  return buildVendor360(
+    vendor,
+    canReadOrders ? getPurchaseVendorRecentOrders(db, orgId, vendorId) : [],
+    canReadOrders ? getPurchaseVendorOpenReceipts(db, orgId, vendorId) : [],
+    canReadBills ? getPurchaseVendorBills(db, orgId, vendorId) : [],
+    getPurchaseVendorOpenReorderSuggestions(db, orgId, vendorId),
+    {
+      orderSummary: getPurchaseVendorOrderSummary(db, orgId, vendorId),
+      includeRecentOrders: canReadOrders,
+      includeOpenReceipts: canReadOrders,
+      includeFinancials: canReadBills
+    }
+  );
+}
+
+function getPurchaseVendorOpenReceipts(db, orgId, vendorId) {
+  return db.prepare(`
+    SELECT purchase_orders.id AS order_id,
+      purchase_orders.order_number AS order_number,
+      purchase_orders.status AS status,
+      purchase_orders.expected_date AS expected_date,
+      purchase_orders.total AS total,
+      COALESCE((
+        SELECT SUM(purchase_order_lines.quantity)
+        FROM purchase_order_lines INDEXED BY idx_purchase_order_lines_order
+        WHERE purchase_order_lines.org_id = purchase_orders.org_id
+          AND purchase_order_lines.purchase_order_id = purchase_orders.id
+      ), 0) AS ordered_quantity,
+      COALESCE((
+        SELECT SUM(purchase_order_lines.received_quantity)
+        FROM purchase_order_lines INDEXED BY idx_purchase_order_lines_order
+        WHERE purchase_order_lines.org_id = purchase_orders.org_id
+          AND purchase_order_lines.purchase_order_id = purchase_orders.id
+      ), 0) AS received_quantity,
+      COALESCE((
+        SELECT SUM(purchase_order_lines.quantity - purchase_order_lines.received_quantity)
+        FROM purchase_order_lines INDEXED BY idx_purchase_order_lines_order
+        WHERE purchase_order_lines.org_id = purchase_orders.org_id
+          AND purchase_order_lines.purchase_order_id = purchase_orders.id
+      ), 0) AS remaining_quantity
+    FROM purchase_orders INDEXED BY idx_purchase_orders_vendor_receipts
+    WHERE purchase_orders.org_id = ?
+      AND purchase_orders.vendor_id = ?
+      AND purchase_orders.status IN ('confirmed', 'partial')
+      AND COALESCE((
+        SELECT SUM(purchase_order_lines.quantity - purchase_order_lines.received_quantity)
+        FROM purchase_order_lines INDEXED BY idx_purchase_order_lines_order
+        WHERE purchase_order_lines.org_id = purchase_orders.org_id
+          AND purchase_order_lines.purchase_order_id = purchase_orders.id
+      ), 0) > 0
+    ORDER BY purchase_orders.expected_date, purchase_orders.created_at
+  `).all(orgId, vendorId).map(row => ({
+    orderId: row.order_id,
+    orderNumber: row.order_number,
+    status: row.status,
+    expectedDate: row.expected_date,
+    total: row.total,
+    orderedQuantity: Number(row.ordered_quantity || 0),
+    receivedQuantity: Number(row.received_quantity || 0),
+    remainingQuantity: Number(row.remaining_quantity || 0)
+  }));
+}
+
+function getPurchaseVendorBills(db, orgId, vendorId) {
+  const asOfDate = armeniaDateString();
+  const ytdStart = `${asOfDate.slice(0, 4)}-01-01`;
+  return db.prepare(`
+    SELECT bills.id,
+      bills.supplier,
+      bills.description,
+      bills.subtotal,
+      bills.vat,
+      bills.total,
+      bills.bill_date AS bill_date,
+      bills.due_date AS due_date,
+      bills.status,
+      purchase_orders.id AS purchase_order_id,
+      purchase_orders.order_number AS purchase_order_number,
+      COALESCE((
+        SELECT SUM(bill_payments.amount)
+        FROM bill_payments INDEXED BY idx_bill_payments_bill
+        WHERE bill_payments.org_id = bills.org_id AND bill_payments.bill_id = bills.id
+      ), 0) AS paid_total,
+      CASE WHEN bills.bill_date >= ? AND bills.bill_date <= ? THEN 1 ELSE 0 END AS is_ytd
+    FROM purchase_orders INDEXED BY idx_purchase_orders_vendor
+    JOIN bills ON bills.id = purchase_orders.bill_id
+      AND bills.org_id = purchase_orders.org_id
+    WHERE purchase_orders.org_id = ? AND purchase_orders.vendor_id = ?
+    ORDER BY bills.bill_date DESC, bills.created_at DESC
+  `).all(ytdStart, asOfDate, orgId, vendorId).map(row => ({
+    id: row.id,
+    supplier: row.supplier,
+    description: row.description || "",
+    subtotal: row.subtotal,
+    vat: row.vat,
+    total: row.total,
+    billDate: row.bill_date,
+    dueDate: row.due_date,
+    status: row.status,
+    purchaseOrderId: row.purchase_order_id,
+    purchaseOrderNumber: row.purchase_order_number,
+    paidTotal: row.paid_total,
+    outstanding: Math.max(0, Number(row.total || 0) - Number(row.paid_total || 0)),
+    isYtd: Boolean(row.is_ytd)
+  }));
+}
+
+function getPurchaseVendorOpenReorderSuggestions(db, orgId, vendorId) {
+  return db.prepare(`
+    SELECT reorder_suggestions.*,
+      stock_shortages.item_id AS shortage_item_id,
+      stock_shortages.location_id AS shortage_location_id,
+      stock_shortages.source_type AS shortage_source_type,
+      stock_shortages.source_id AS shortage_source_id,
+      stock_shortages.requested_qty AS shortage_requested_qty,
+      stock_shortages.available_qty AS shortage_available_qty,
+      stock_shortages.shortage_qty AS shortage_qty,
+      stock_shortages.status AS shortage_status,
+      catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name,
+      stock_locations.code AS location_code,
+      stock_locations.name AS location_name,
+      purchase_vendors.name AS vendor_name,
+      purchase_orders.order_number AS created_purchase_order_number
+    FROM reorder_suggestions
+    JOIN stock_shortages ON stock_shortages.id = reorder_suggestions.shortage_id
+      AND stock_shortages.org_id = reorder_suggestions.org_id
+    JOIN catalog_items ON catalog_items.id = stock_shortages.item_id
+      AND catalog_items.org_id = stock_shortages.org_id
+    JOIN stock_locations ON stock_locations.id = stock_shortages.location_id
+      AND stock_locations.org_id = stock_shortages.org_id
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = reorder_suggestions.suggested_vendor_id
+      AND purchase_vendors.org_id = reorder_suggestions.org_id
+    LEFT JOIN purchase_orders ON purchase_orders.id = reorder_suggestions.created_purchase_order_id
+      AND purchase_orders.org_id = reorder_suggestions.org_id
+    WHERE reorder_suggestions.org_id = ?
+      AND reorder_suggestions.status = 'pending'
+      AND reorder_suggestions.suggested_vendor_id = ?
+    ORDER BY reorder_suggestions.created_at DESC, reorder_suggestions.id DESC
+  `).all(orgId, vendorId).map(formatReorderSuggestion);
+}
+
 function formatPurchaseVendor(row, prices = []) {
   return {
     id: row.id,
@@ -52251,6 +52490,12 @@ function nextPurchaseOrderNumber() {
 
 function throwPurchaseOrderNotFound() {
   const err = new Error("Purchase order not found");
+  err.statusCode = 404;
+  throw err;
+}
+
+function throwPurchaseVendorNotFound() {
+  const err = new Error("Purchase vendor not found");
   err.statusCode = 404;
   throw err;
 }
