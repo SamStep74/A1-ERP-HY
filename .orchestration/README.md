@@ -9,10 +9,10 @@ worker tasks.
 
 ```
 .orchestration/
-├── README.md                       ← this file
-├── a1-erp-hy-initial.json          ← first wave (RBAC + dmux + docs)
-├── a1-erp-hy-rbac-foundation.json  ← second wave (planned)
-└── <sessionName>/                  ← created at runtime
+├── README.md                       <- this file
+├── a1-erp-hy-initial.json          <- first wave (RBAC + dmux + docs)
+├── a1-erp-hy-wave*.json            <- reusable wave plans
+└── <sessionName>/                  <- created at runtime or checked in as a durable wave plan
     └── <workerName>/
         ├── task.md                 ← input to the worker
         ├── handoff.md              ← output from the worker
