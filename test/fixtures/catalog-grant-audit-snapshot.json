@@ -3,11 +3,11 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 59,
+    "pass": 65,
     "broad": 0,
     "no-legacy": 0,
     "unknown-key": 0,
-    "total": 59
+    "total": 65
   },
   "findings": [
     {
@@ -1137,6 +1137,152 @@
         "Owner",
         "PurchaseLead",
         "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/rfqs",
+      "permKey": "purchase.rfq.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser",
+        "VendorPortal"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "VendorPortal"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/rfqs/:id",
+      "permKey": "purchase.rfq.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser",
+        "VendorPortal"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser",
+        "VendorPortal"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/rfqs",
+      "permKey": "purchase.rfq.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/rfqs/:id/send",
+      "permKey": "purchase.rfq.send",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/rfqs/:id/bids",
+      "permKey": "purchase.rfq.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Accountant",
+        "FinanceLead",
+        "InventoryLead",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "FinanceLead",
+        "InventoryLead",
+        "Owner",
+        "PurchaseLead",
+        "Purchaser"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/rfqs/:id/award",
+      "permKey": "purchase.po.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Operator",
+        "Owner"
       ],
       "extraRoles": []
     },

@@ -832,6 +832,106 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_order
       ON purchase_order_lines(org_id, purchase_order_id);
 
+    -- Wave 11 Worker A — vendor RFQ tender flow.
+    CREATE TABLE IF NOT EXISTS purchase_rfqs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_number TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('draft','sent','awarded','cancelled')) DEFAULT 'draft',
+      request_date TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      awarded_bid_id TEXT,
+      awarded_purchase_order_id TEXT REFERENCES purchase_orders(id) ON DELETE SET NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sent_at TEXT,
+      awarded_at TEXT,
+      UNIQUE(org_id, rfq_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfqs_status
+      ON purchase_rfqs(org_id, status, request_date DESC);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES purchase_rfqs(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      target_unit_cost INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_lines_rfq
+      ON purchase_rfq_lines(org_id, rfq_id);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_vendors (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES purchase_rfqs(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('invited','sent','responded','declined','awarded')) DEFAULT 'invited',
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, rfq_id, vendor_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_vendors_rfq
+      ON purchase_rfq_vendors(org_id, rfq_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_vendors_vendor
+      ON purchase_rfq_vendors(org_id, vendor_id, status);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_bids (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES purchase_rfqs(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('submitted','awarded','rejected')) DEFAULT 'submitted',
+      bid_date TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, rfq_id, vendor_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_bids_rfq
+      ON purchase_rfq_bids(org_id, rfq_id, status, total);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_bid_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      bid_id TEXT NOT NULL REFERENCES purchase_rfq_bids(id) ON DELETE CASCADE,
+      rfq_line_id TEXT NOT NULL REFERENCES purchase_rfq_lines(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_cost INTEGER NOT NULL,
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, bid_id, rfq_line_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_bid_lines_bid
+      ON purchase_rfq_bid_lines(org_id, bid_id);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_rfq_bid_lines_unique
+      ON purchase_rfq_bid_lines(org_id, bid_id, rfq_line_id);
+
     -- Wave 10 Worker A — shortages can become purchasable reorder suggestions.
     CREATE TABLE IF NOT EXISTS reorder_suggestions (
       id TEXT PRIMARY KEY,
@@ -7664,6 +7764,105 @@ function ensurePurchaseLayer(db) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
   db.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_rfqs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_number TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('draft','sent','awarded','cancelled')) DEFAULT 'draft',
+      request_date TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      awarded_bid_id TEXT,
+      awarded_purchase_order_id TEXT REFERENCES purchase_orders(id) ON DELETE SET NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sent_at TEXT,
+      awarded_at TEXT,
+      UNIQUE(org_id, rfq_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfqs_status
+      ON purchase_rfqs(org_id, status, request_date DESC);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES purchase_rfqs(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      target_unit_cost INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_lines_rfq
+      ON purchase_rfq_lines(org_id, rfq_id);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_vendors (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES purchase_rfqs(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('invited','sent','responded','declined','awarded')) DEFAULT 'invited',
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, rfq_id, vendor_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_vendors_rfq
+      ON purchase_rfq_vendors(org_id, rfq_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_vendors_vendor
+      ON purchase_rfq_vendors(org_id, vendor_id, status);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_bids (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES purchase_rfqs(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('submitted','awarded','rejected')) DEFAULT 'submitted',
+      bid_date TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, rfq_id, vendor_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_bids_rfq
+      ON purchase_rfq_bids(org_id, rfq_id, status, total);
+
+    CREATE TABLE IF NOT EXISTS purchase_rfq_bid_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      bid_id TEXT NOT NULL REFERENCES purchase_rfq_bids(id) ON DELETE CASCADE,
+      rfq_line_id TEXT NOT NULL REFERENCES purchase_rfq_lines(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_cost INTEGER NOT NULL,
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, bid_id, rfq_line_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_rfq_bid_lines_bid
+      ON purchase_rfq_bid_lines(org_id, bid_id);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_rfq_bid_lines_unique
+      ON purchase_rfq_bid_lines(org_id, bid_id, rfq_line_id);
+
     CREATE TABLE IF NOT EXISTS reorder_suggestions (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

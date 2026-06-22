@@ -144,6 +144,7 @@ const { hasPermission, requirePerm } = require("./rbac/guards");
 const { pickBestVendor, suggestionToPoBody } = require("./purchasing/reorder-suggester");
 const { matchReceipt, matchPrice } = require("./purchasing/three-way-match");
 const { buildVendor360 } = require("./purchasing/vendor-360");
+const { buildAwardPurchaseOrderBody, rankRfqBids } = require("./purchasing/vendor-rfq");
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -846,6 +847,72 @@ function registerApi(app, db, options = {}) {
   }, async request => {
     const vendorId = normalizePurchasePathId(request.params.id);
     return { prices: getPurchaseVendorPriceHistory(db, request.user.org_id, vendorId) };
+  });
+
+  // Wave 11 Worker A — vendor RFQ tender flow.
+  // rbac-audit: expected-roles Owner, Admin, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, VendorPortal
+  app.get("/api/purchase/rfqs", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.rfq.read"),
+    ],
+  }, async request => {
+    const filters = normalizePurchaseRfqListQuery(request.query || {});
+    return { rfqs: getPurchaseRfqs(db, request.user.org_id, filters) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Accountant, Auditor, FinanceLead, InventoryLead, PurchaseLead, Purchaser, VendorPortal
+  app.get("/api/purchase/rfqs/:id", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.rfq.read"),
+    ],
+  }, async request => {
+    const rfqId = normalizePurchasePathId(request.params.id);
+    return { rfq: getPurchaseRfqOrThrow(db, request.user.org_id, rfqId) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser
+  app.post("/api/purchase/rfqs", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.rfq.create"),
+    ],
+  }, async request => {
+    return createPurchaseRfq(db, request.user, request.body === undefined ? {} : request.body);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser
+  app.post("/api/purchase/rfqs/:id/send", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.rfq.send"),
+    ],
+  }, async request => {
+    const rfqId = normalizePurchasePathId(request.params.id);
+    return sendPurchaseRfq(db, request.user, rfqId);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Accountant, FinanceLead, InventoryLead, PurchaseLead, Purchaser
+  app.post("/api/purchase/rfqs/:id/bids", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.rfq.update"),
+    ],
+  }, async request => {
+    const rfqId = normalizePurchasePathId(request.params.id);
+    return submitPurchaseRfqBid(db, request.user, rfqId, request.body === undefined ? {} : request.body);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
+  app.post("/api/purchase/rfqs/:id/award", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.create"),
+    ],
+  }, async request => {
+    const rfqId = normalizePurchasePathId(request.params.id);
+    return awardPurchaseRfqBid(db, request.user, rfqId, request.body === undefined ? {} : request.body);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
@@ -42527,6 +42594,11 @@ const ORG_BACKUP_TABLES = [
   "purchase_vendor_prices",
   "purchase_orders",
   "purchase_order_lines",
+  "purchase_rfqs",
+  "purchase_rfq_lines",
+  "purchase_rfq_vendors",
+  "purchase_rfq_bids",
+  "purchase_rfq_bid_lines",
   "reorder_suggestions",
   "po_receipt_matches",
   "po_bill_matches",
@@ -50475,6 +50547,684 @@ function getPurchaseVendorPriceHistory(db, orgId, vendorId) {
       purchase_vendor_prices.min_quantity
     LIMIT 25
   `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
+}
+
+function getPurchaseRfqs(db, orgId, filters = {}) {
+  const where = ["purchase_rfqs.org_id = ?"];
+  const params = [orgId];
+  if (filters.status) {
+    where.push("purchase_rfqs.status = ?");
+    params.push(filters.status);
+  }
+  return db.prepare(`
+    SELECT purchase_rfqs.*, users.name AS created_by_name
+    FROM purchase_rfqs
+    LEFT JOIN users ON users.id = purchase_rfqs.created_by_user_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY purchase_rfqs.request_date DESC, purchase_rfqs.created_at DESC
+  `).all(...params).map(row => formatPurchaseRfq(
+    row,
+    getPurchaseRfqLines(db, orgId, row.id),
+    getPurchaseRfqVendors(db, orgId, row.id),
+    getPurchaseRfqBids(db, orgId, row.id)
+  ));
+}
+
+function getPurchaseRfq(db, orgId, rfqId) {
+  const row = db.prepare(`
+    SELECT purchase_rfqs.*, users.name AS created_by_name
+    FROM purchase_rfqs
+    LEFT JOIN users ON users.id = purchase_rfqs.created_by_user_id
+    WHERE purchase_rfqs.org_id = ? AND purchase_rfqs.id = ?
+  `).get(orgId, rfqId);
+  return row ? formatPurchaseRfq(
+    row,
+    getPurchaseRfqLines(db, orgId, row.id),
+    getPurchaseRfqVendors(db, orgId, row.id),
+    getPurchaseRfqBids(db, orgId, row.id)
+  ) : null;
+}
+
+function getPurchaseRfqOrThrow(db, orgId, rfqId) {
+  const rfq = getPurchaseRfq(db, orgId, rfqId);
+  if (!rfq) throwPurchaseRfqNotFound();
+  return rfq;
+}
+
+function getPurchaseRfqLines(db, orgId, rfqId) {
+  return db.prepare(`
+    SELECT purchase_rfq_lines.*, catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure
+    FROM purchase_rfq_lines
+    JOIN catalog_items ON catalog_items.id = purchase_rfq_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_rfq_lines.org_id
+    WHERE purchase_rfq_lines.org_id = ? AND purchase_rfq_lines.rfq_id = ?
+    ORDER BY purchase_rfq_lines.created_at, purchase_rfq_lines.id
+  `).all(orgId, rfqId).map(formatPurchaseRfqLine);
+}
+
+function getPurchaseRfqVendors(db, orgId, rfqId) {
+  return db.prepare(`
+    SELECT purchase_rfq_vendors.*, purchase_vendors.name AS vendor_name,
+      purchase_vendors.tax_id AS vendor_tax_id
+    FROM purchase_rfq_vendors
+    JOIN purchase_vendors ON purchase_vendors.id = purchase_rfq_vendors.vendor_id
+      AND purchase_vendors.org_id = purchase_rfq_vendors.org_id
+    WHERE purchase_rfq_vendors.org_id = ? AND purchase_rfq_vendors.rfq_id = ?
+    ORDER BY purchase_vendors.name
+  `).all(orgId, rfqId).map(formatPurchaseRfqVendor);
+}
+
+function getPurchaseRfqBids(db, orgId, rfqId) {
+  return db.prepare(`
+    SELECT purchase_rfq_bids.*, purchase_vendors.name AS vendor_name,
+      purchase_vendors.tax_id AS vendor_tax_id, users.name AS created_by_name
+    FROM purchase_rfq_bids
+    JOIN purchase_vendors ON purchase_vendors.id = purchase_rfq_bids.vendor_id
+      AND purchase_vendors.org_id = purchase_rfq_bids.org_id
+    LEFT JOIN users ON users.id = purchase_rfq_bids.created_by_user_id
+    WHERE purchase_rfq_bids.org_id = ? AND purchase_rfq_bids.rfq_id = ?
+    ORDER BY purchase_rfq_bids.total ASC, purchase_rfq_bids.created_at ASC
+  `).all(orgId, rfqId).map(row => formatPurchaseRfqBid(row, getPurchaseRfqBidLines(db, orgId, row.id)));
+}
+
+function getPurchaseRfqBid(db, orgId, bidId) {
+  const row = db.prepare(`
+    SELECT purchase_rfq_bids.*, purchase_vendors.name AS vendor_name,
+      purchase_vendors.tax_id AS vendor_tax_id, users.name AS created_by_name
+    FROM purchase_rfq_bids
+    JOIN purchase_vendors ON purchase_vendors.id = purchase_rfq_bids.vendor_id
+      AND purchase_vendors.org_id = purchase_rfq_bids.org_id
+    LEFT JOIN users ON users.id = purchase_rfq_bids.created_by_user_id
+    WHERE purchase_rfq_bids.org_id = ? AND purchase_rfq_bids.id = ?
+  `).get(orgId, bidId);
+  return row ? formatPurchaseRfqBid(row, getPurchaseRfqBidLines(db, orgId, row.id)) : null;
+}
+
+function getPurchaseRfqBidLines(db, orgId, bidId) {
+  return db.prepare(`
+    SELECT purchase_rfq_bid_lines.*, catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure
+    FROM purchase_rfq_bid_lines
+    JOIN catalog_items ON catalog_items.id = purchase_rfq_bid_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_rfq_bid_lines.org_id
+    WHERE purchase_rfq_bid_lines.org_id = ? AND purchase_rfq_bid_lines.bid_id = ?
+    ORDER BY purchase_rfq_bid_lines.created_at, purchase_rfq_bid_lines.id
+  `).all(orgId, bidId).map(formatPurchaseRfqBidLine);
+}
+
+function formatPurchaseRfq(row, lines = [], vendors = [], bids = []) {
+  const rankedBids = rankRfqBids(bids);
+  return {
+    id: row.id,
+    rfqNumber: row.rfq_number,
+    title: row.title,
+    status: row.status,
+    requestDate: row.request_date,
+    dueDate: row.due_date,
+    awardedBidId: row.awarded_bid_id || "",
+    awardedPurchaseOrderId: row.awarded_purchase_order_id || "",
+    note: row.note || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    sentAt: row.sent_at || "",
+    awardedAt: row.awarded_at || "",
+    lines,
+    vendors,
+    bids: rankedBids,
+    summary: {
+      lineCount: lines.length,
+      vendorCount: vendors.length,
+      bidCount: bids.length,
+      bestBidId: rankedBids[0]?.id || "",
+      bestBidTotal: rankedBids[0]?.total || 0
+    }
+  };
+}
+
+function formatPurchaseRfqLine(row) {
+  return {
+    id: row.id,
+    rfqId: row.rfq_id,
+    catalogItemId: row.catalog_item_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    unitOfMeasure: row.unit_of_measure,
+    description: row.description || row.catalog_name,
+    quantity: row.quantity,
+    targetUnitCost: row.target_unit_cost,
+    createdAt: row.created_at
+  };
+}
+
+function formatPurchaseRfqVendor(row) {
+  return {
+    id: row.id,
+    rfqId: row.rfq_id,
+    vendorId: row.vendor_id,
+    vendorName: row.vendor_name,
+    vendorTaxId: row.vendor_tax_id || "",
+    status: row.status,
+    sentAt: row.sent_at || "",
+    createdAt: row.created_at
+  };
+}
+
+function formatPurchaseRfqBid(row, lines = []) {
+  return {
+    id: row.id,
+    rfqId: row.rfq_id,
+    vendorId: row.vendor_id,
+    vendorName: row.vendor_name,
+    vendorTaxId: row.vendor_tax_id || "",
+    status: row.status,
+    bidDate: row.bid_date,
+    validUntil: row.valid_until,
+    subtotal: row.subtotal,
+    vat: row.vat,
+    total: row.total,
+    currency: row.currency,
+    note: row.note || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    leadTimeDays: lines.reduce((max, line) => Math.max(max, Number(line.leadTimeDays || 0)), 0),
+    lines
+  };
+}
+
+function formatPurchaseRfqBidLine(row) {
+  return {
+    id: row.id,
+    bidId: row.bid_id,
+    rfqLineId: row.rfq_line_id,
+    catalogItemId: row.catalog_item_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    unitOfMeasure: row.unit_of_measure,
+    description: row.description || row.catalog_name,
+    quantity: row.quantity,
+    unitCost: row.unit_cost,
+    subtotal: row.subtotal,
+    vat: row.vat,
+    total: row.total,
+    leadTimeDays: row.lead_time_days,
+    note: row.note || "",
+    createdAt: row.created_at
+  };
+}
+
+function createPurchaseRfq(db, user, body) {
+  const input = normalizePurchaseRfqCreateBody(body);
+  const vendorIds = normalizePurchaseRfqVendorIds(body);
+  const now = new Date().toISOString();
+  const rfqId = randomId("purchase-rfq");
+  const rfqNumber = input.rfqNumber || nextPurchaseRfqNumber();
+  assertPurchaseRfqNumberAvailable(db, user.org_id, rfqNumber);
+  const vendors = vendorIds.map(vendorId => {
+    const vendor = getPurchaseVendor(db, user.org_id, vendorId);
+    if (!vendor || vendor.status !== "active") throwPurchaseVendorNotFound();
+    return vendor;
+  });
+  const lines = input.lines.map(line => {
+    const item = assertCatalogItemExists(db, user.org_id, line.catalogItemId);
+    return {
+      ...line,
+      description: line.description || item.name
+    };
+  });
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO purchase_rfqs (
+        id, org_id, rfq_number, title, status, request_date, due_date, note,
+        created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)
+    `).run(
+      rfqId,
+      user.org_id,
+      rfqNumber,
+      input.title,
+      input.requestDate,
+      input.dueDate,
+      input.note,
+      user.id,
+      now,
+      now
+    );
+    const insertLine = db.prepare(`
+      INSERT INTO purchase_rfq_lines (
+        id, org_id, rfq_id, catalog_item_id, description, quantity, target_unit_cost, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const line of lines) {
+      insertLine.run(
+        randomId("purchase-rfq-line"),
+        user.org_id,
+        rfqId,
+        line.catalogItemId,
+        line.description,
+        line.quantity,
+        line.targetUnitCost,
+        now
+      );
+    }
+    const insertVendor = db.prepare(`
+      INSERT INTO purchase_rfq_vendors (
+        id, org_id, rfq_id, vendor_id, status, created_at
+      )
+      VALUES (?, ?, ?, ?, 'invited', ?)
+    `);
+    for (const vendor of vendors) {
+      insertVendor.run(randomId("purchase-rfq-vendor"), user.org_id, rfqId, vendor.id, now);
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.rfq.created",
+      subjectType: "purchase_rfq",
+      subjectId: rfqId,
+      status: "draft",
+      payload: { rfqNumber, title: input.title, vendorCount: vendors.length, lineCount: lines.length }
+    });
+    audit(db, user.org_id, user.id, "purchase.rfq.created", { rfqId, rfqNumber, vendorCount: vendors.length, lineCount: lines.length });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, rfq: getPurchaseRfq(db, user.org_id, rfqId) };
+}
+
+function sendPurchaseRfq(db, user, rfqId) {
+  const rfq = getPurchaseRfq(db, user.org_id, rfqId);
+  if (!rfq) throwPurchaseRfqNotFound();
+  if (rfq.status === "sent") return { ok: true, idempotent: true, rfq };
+  if (rfq.status !== "draft") throwPurchaseStateConflict("RFQ is not sendable");
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE purchase_rfqs
+      SET status = 'sent', sent_at = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(now, now, user.org_id, rfq.id);
+    db.prepare(`
+      UPDATE purchase_rfq_vendors
+      SET status = CASE WHEN status = 'invited' THEN 'sent' ELSE status END,
+        sent_at = COALESCE(sent_at, ?)
+      WHERE org_id = ? AND rfq_id = ?
+    `).run(now, user.org_id, rfq.id);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.rfq.sent",
+      subjectType: "purchase_rfq",
+      subjectId: rfq.id,
+      status: "sent",
+      payload: { rfqNumber: rfq.rfqNumber, vendorCount: rfq.vendors.length, lineCount: rfq.lines.length }
+    });
+    audit(db, user.org_id, user.id, "purchase.rfq.sent", { rfqId: rfq.id, rfqNumber: rfq.rfqNumber, vendorCount: rfq.vendors.length });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, rfq: getPurchaseRfq(db, user.org_id, rfq.id) };
+}
+
+function submitPurchaseRfqBid(db, user, rfqId, body) {
+  const rfq = getPurchaseRfq(db, user.org_id, rfqId);
+  if (!rfq) throwPurchaseRfqNotFound();
+  if (rfq.status !== "sent") throwPurchaseStateConflict("RFQ must be sent before bids can be submitted");
+  const input = normalizePurchaseRfqBidBody(body, rfq);
+  const vendor = getPurchaseVendor(db, user.org_id, input.vendorId);
+  if (!vendor || vendor.status !== "active") throwPurchaseVendorNotFound();
+  const invitation = db.prepare(`
+    SELECT *
+    FROM purchase_rfq_vendors
+    WHERE org_id = ? AND rfq_id = ? AND vendor_id = ?
+  `).get(user.org_id, rfq.id, input.vendorId);
+  if (!invitation) throwPurchaseStateConflict("Vendor is not invited to this RFQ");
+  if (invitation.status === "awarded") throwPurchaseStateConflict("RFQ vendor is already awarded");
+  const existingBid = db.prepare(`
+    SELECT id
+    FROM purchase_rfq_bids
+    WHERE org_id = ? AND rfq_id = ? AND vendor_id = ?
+  `).get(user.org_id, rfq.id, input.vendorId);
+  if (existingBid) throwPurchaseStateConflict("RFQ bid already exists for this vendor");
+  const rate = resolveVatRate(db, user.org_id, input.bidDate);
+  const rfqLineById = new Map(rfq.lines.map(line => [line.id, line]));
+  const bidLines = input.lines.map(line => buildPurchaseRfqBidLine(db, user.org_id, rfqLineById.get(line.rfqLineId), line, rate));
+  const subtotal = bidLines.reduce((total, line) => total + line.subtotal, 0);
+  const vat = bidLines.reduce((total, line) => total + line.vat, 0);
+  const total = subtotal + vat;
+  if (!Number.isSafeInteger(subtotal) || !Number.isSafeInteger(vat) || !Number.isSafeInteger(total)) throwInvalidPurchaseMetadata();
+  const now = new Date().toISOString();
+  const bidId = randomId("purchase-rfq-bid");
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO purchase_rfq_bids (
+        id, org_id, rfq_id, vendor_id, status, bid_date, valid_until,
+        subtotal, vat, total, currency, note, created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      bidId,
+      user.org_id,
+      rfq.id,
+      input.vendorId,
+      input.bidDate,
+      input.validUntil,
+      subtotal,
+      vat,
+      total,
+      activeCurrencyCode(),
+      input.note,
+      user.id,
+      now,
+      now
+    );
+    const insertLine = db.prepare(`
+      INSERT INTO purchase_rfq_bid_lines (
+        id, org_id, bid_id, rfq_line_id, catalog_item_id, description, quantity,
+        unit_cost, subtotal, vat, total, lead_time_days, note, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const line of bidLines) {
+      insertLine.run(
+        randomId("purchase-rfq-bid-line"),
+        user.org_id,
+        bidId,
+        line.rfqLineId,
+        line.catalogItemId,
+        line.description,
+        line.quantity,
+        line.unitCost,
+        line.subtotal,
+        line.vat,
+        line.total,
+        line.leadTimeDays,
+        line.note,
+        now
+      );
+    }
+    db.prepare(`
+      UPDATE purchase_rfq_vendors
+      SET status = 'responded'
+      WHERE org_id = ? AND rfq_id = ? AND vendor_id = ?
+    `).run(user.org_id, rfq.id, input.vendorId);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.rfq.bid_submitted",
+      subjectType: "purchase_rfq_bid",
+      subjectId: bidId,
+      status: "submitted",
+      payload: { rfqId: rfq.id, rfqNumber: rfq.rfqNumber, vendorId: input.vendorId, total }
+    });
+    audit(db, user.org_id, user.id, "purchase.rfq.bid_submitted", { rfqId: rfq.id, bidId, vendorId: input.vendorId, total });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, rfq: getPurchaseRfq(db, user.org_id, rfq.id), bid: getPurchaseRfqBid(db, user.org_id, bidId) };
+}
+
+function awardPurchaseRfqBid(db, user, rfqId, body) {
+  const rfq = getPurchaseRfq(db, user.org_id, rfqId);
+  if (!rfq) throwPurchaseRfqNotFound();
+  if (rfq.status === "awarded") {
+    return {
+      ok: true,
+      idempotent: true,
+      rfq,
+      bid: rfq.awardedBidId ? getPurchaseRfqBid(db, user.org_id, rfq.awardedBidId) : null,
+      order: rfq.awardedPurchaseOrderId ? getPurchaseOrder(db, user.org_id, rfq.awardedPurchaseOrderId) : null
+    };
+  }
+  if (rfq.status !== "sent") throwPurchaseStateConflict("RFQ must be sent before award");
+  const input = normalizePurchaseRfqAwardBody(body);
+  const bid = getPurchaseRfqBid(db, user.org_id, input.bidId);
+  if (!bid || bid.rfqId !== rfq.id) throwPurchaseRfqBidNotFound();
+  if (bid.status !== "submitted") throwPurchaseStateConflict("RFQ bid is not awardable");
+  const orderNumber = input.orderNumber || rfqAwardOrderNumber(rfq);
+  const poBody = buildAwardPurchaseOrderBody(rfq, bid, {
+    orderNumber,
+    orderDate: input.orderDate,
+    expectedDate: input.expectedDate,
+    note: input.note
+  });
+  const existingOrder = getPurchaseOrderByOrderNumber(db, user.org_id, poBody.orderNumber);
+  if (existingOrder && !purchaseOrderMatchesRfqAward(existingOrder, poBody)) {
+    throwPurchaseStateConflict("RFQ award purchase order number already exists");
+  }
+  const order = existingOrder || createPurchaseOrder(db, user, poBody).order;
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE purchase_rfqs
+      SET status = 'awarded', awarded_bid_id = ?, awarded_purchase_order_id = ?,
+        awarded_at = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(bid.id, order.id, now, now, user.org_id, rfq.id);
+    db.prepare(`
+      UPDATE purchase_rfq_bids
+      SET status = CASE WHEN id = ? THEN 'awarded' ELSE 'rejected' END,
+        updated_at = ?
+      WHERE org_id = ? AND rfq_id = ?
+    `).run(bid.id, now, user.org_id, rfq.id);
+    db.prepare(`
+      UPDATE purchase_rfq_vendors
+      SET status = CASE WHEN vendor_id = ? THEN 'awarded' ELSE status END
+      WHERE org_id = ? AND rfq_id = ?
+    `).run(bid.vendorId, user.org_id, rfq.id);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.rfq.awarded",
+      subjectType: "purchase_rfq",
+      subjectId: rfq.id,
+      status: "awarded",
+      payload: { rfqNumber: rfq.rfqNumber, bidId: bid.id, vendorId: bid.vendorId, purchaseOrderId: order.id, total: bid.total }
+    });
+    audit(db, user.org_id, user.id, "purchase.rfq.awarded", {
+      rfqId: rfq.id,
+      bidId: bid.id,
+      vendorId: bid.vendorId,
+      purchaseOrderId: order.id,
+      total: bid.total
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return {
+    ok: true,
+    rfq: getPurchaseRfq(db, user.org_id, rfq.id),
+    bid: getPurchaseRfqBid(db, user.org_id, bid.id),
+    order: getPurchaseOrder(db, user.org_id, order.id)
+  };
+}
+
+function buildPurchaseRfqBidLine(db, orgId, rfqLine, inputLine, vatRate) {
+  if (!rfqLine) throwInvalidPurchaseMetadata();
+  const item = assertCatalogItemExists(db, orgId, rfqLine.catalogItemId);
+  const subtotal = Number(rfqLine.quantity || 0) * Number(inputLine.unitCost || 0);
+  if (!Number.isSafeInteger(subtotal) || subtotal <= 0) throwInvalidPurchaseMetadata();
+  const vat = item.vatMode === "standard" ? vatFromStoredNet(subtotal, vatRate) : 0;
+  if (!Number.isSafeInteger(vat) || !Number.isSafeInteger(subtotal + vat)) throwInvalidPurchaseMetadata();
+  return {
+    rfqLineId: rfqLine.id,
+    catalogItemId: rfqLine.catalogItemId,
+    description: inputLine.description || rfqLine.description || item.name,
+    quantity: rfqLine.quantity,
+    unitCost: inputLine.unitCost,
+    subtotal,
+    vat,
+    total: subtotal + vat,
+    leadTimeDays: inputLine.leadTimeDays,
+    note: inputLine.note
+  };
+}
+
+function normalizePurchaseRfqListQuery(query) {
+  if (!isPlainObject(query)) throwInvalidPurchaseMetadata();
+  return {
+    status: normalizePurchaseChoice(query, "status", ["draft", "sent", "awarded", "cancelled"], "")
+  };
+}
+
+function normalizePurchaseRfqCreateBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const requestDate = normalizePurchaseDate(body, "requestDate");
+  const dueDate = normalizePurchaseDate(body, "dueDate", { fallback: requestDate });
+  if (dueDate < requestDate) throwInvalidPurchaseMetadata();
+  return {
+    rfqNumber: normalizePurchaseText(body, "rfqNumber", { fallback: "", maxLength: 40, idLike: true }).toUpperCase(),
+    title: normalizePurchaseText(body, "title", { required: true, minLength: 3, maxLength: 200 }),
+    requestDate,
+    dueDate,
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
+    lines: normalizePurchaseRfqLines(body)
+  };
+}
+
+function normalizePurchaseRfqVendorIds(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const value = Object.prototype.hasOwnProperty.call(body, "vendorIds") ? body.vendorIds : undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 25) throwInvalidPurchaseMetadata();
+  const seen = new Set();
+  return value.map(vendorId => {
+    const normalized = normalizePurchaseText({ vendorId }, "vendorId", { required: true, maxLength: 160, idLike: true });
+    if (seen.has(normalized)) throwInvalidPurchaseMetadata();
+    seen.add(normalized);
+    return normalized;
+  });
+}
+
+function normalizePurchaseRfqLines(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "lines") ? body.lines : undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 25) throwInvalidPurchaseMetadata();
+  return value.map(line => {
+    if (!isPlainObject(line)) throwInvalidPurchaseMetadata();
+    return {
+      catalogItemId: normalizePurchaseText(line, "catalogItemId", { required: true, maxLength: 160, idLike: true }),
+      description: normalizePurchaseText(line, "description", { fallback: "", maxLength: 200 }),
+      quantity: normalizePurchaseInteger(line, "quantity", { required: true, min: 1, max: 1000000 }),
+      targetUnitCost: normalizePurchaseMoney(line, "targetUnitCost", { fallback: 0, min: 0, max: 1000000000000 })
+    };
+  });
+}
+
+function normalizePurchaseRfqBidBody(body, rfq) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const bidDate = normalizePurchaseDate(body, "bidDate");
+  const validUntil = normalizePurchaseDate(body, "validUntil", { fallback: rfq.dueDate || bidDate });
+  if (validUntil < bidDate) throwInvalidPurchaseMetadata();
+  const lines = normalizePurchaseRfqBidLines(body, rfq);
+  return {
+    vendorId: normalizePurchaseText(body, "vendorId", { required: true, maxLength: 160, idLike: true }),
+    bidDate,
+    validUntil,
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
+    lines
+  };
+}
+
+function normalizePurchaseRfqBidLines(body, rfq) {
+  const value = Object.prototype.hasOwnProperty.call(body, "lines") ? body.lines : undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 25) throwInvalidPurchaseMetadata();
+  if (value.length !== rfq.lines.length) throwInvalidPurchaseMetadata();
+  const rfqLineIds = new Set(rfq.lines.map(line => line.id));
+  const seen = new Set();
+  const lines = value.map(line => {
+    if (!isPlainObject(line)) throwInvalidPurchaseMetadata();
+    const rfqLineId = Object.prototype.hasOwnProperty.call(line, "rfqLineId")
+      ? normalizePurchaseText(line, "rfqLineId", { required: true, maxLength: 160, idLike: true })
+      : normalizePurchaseText(line, "lineId", { required: true, maxLength: 160, idLike: true });
+    if (!rfqLineIds.has(rfqLineId) || seen.has(rfqLineId)) throwInvalidPurchaseMetadata();
+    seen.add(rfqLineId);
+    return {
+      rfqLineId,
+      description: normalizePurchaseText(line, "description", { fallback: "", maxLength: 200 }),
+      unitCost: normalizePurchaseMoney(line, "unitCost", { required: true, min: 1, max: 1000000000000 }),
+      leadTimeDays: normalizePurchaseInteger(line, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
+      note: normalizePurchaseText(line, "note", { fallback: "", maxLength: 200 })
+    };
+  });
+  if (seen.size !== rfqLineIds.size) throwInvalidPurchaseMetadata();
+  return lines;
+}
+
+function normalizePurchaseRfqAwardBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const orderDate = normalizePurchaseDate(body, "orderDate");
+  const expectedDate = normalizePurchaseDate(body, "expectedDate", { fallback: orderDate });
+  if (expectedDate < orderDate) throwInvalidPurchaseMetadata();
+  return {
+    bidId: normalizePurchaseText(body, "bidId", { required: true, maxLength: 160, idLike: true }),
+    orderNumber: normalizePurchaseText(body, "orderNumber", { fallback: "", maxLength: 40, idLike: true }).toUpperCase(),
+    orderDate,
+    expectedDate,
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
+function nextPurchaseRfqNumber() {
+  const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  return `RFQ-${date}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
+function rfqAwardOrderNumber(rfq) {
+  const base = `${rfq.rfqNumber || rfq.id}-AWARD`.toUpperCase();
+  if (base.length <= 40) return base;
+  const suffix = crypto.createHash("sha1").update(rfq.id).digest("hex").slice(0, 8).toUpperCase();
+  return `${base.slice(0, 31)}-${suffix}`;
+}
+
+function purchaseOrderMatchesRfqAward(order, poBody) {
+  if (!order || order.status !== "rfq") return false;
+  if ((order.vendorId || "") !== (poBody.vendorId || "")) return false;
+  if ((order.lines || []).length !== (poBody.lines || []).length) return false;
+  return poBody.lines.every((line, index) => {
+    const existing = order.lines[index];
+    return existing
+      && existing.catalogItemId === line.catalogItemId
+      && Number(existing.quantity || 0) === Number(line.quantity || 0)
+      && Number(existing.unitCost || 0) === Number(line.unitCost || 0);
+  });
+}
+
+function assertPurchaseRfqNumberAvailable(db, orgId, rfqNumber) {
+  const row = db.prepare("SELECT id FROM purchase_rfqs WHERE org_id = ? AND rfq_number = ?").get(orgId, rfqNumber);
+  if (row) {
+    const err = new Error("Purchase RFQ number already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function throwPurchaseRfqNotFound() {
+  const err = new Error("Purchase RFQ not found");
+  err.statusCode = 404;
+  throw err;
+}
+
+function throwPurchaseRfqBidNotFound() {
+  const err = new Error("Purchase RFQ bid not found");
+  err.statusCode = 404;
+  throw err;
 }
 
 function getPurchaseVendorOrders(db, orgId, vendorId, limit = 0) {

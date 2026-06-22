@@ -463,6 +463,13 @@ const ANNOTATED_SITES = [
   { method: 'GET',  path: '/api/purchase/vendors/:id/360',                permKey: 'purchase.vendor_360.read', expectedRoles: ['Owner', 'Admin', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
   { method: 'GET',  path: '/api/purchase/vendors/:id/recent-orders',      permKey: 'purchase.po.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
   { method: 'GET',  path: '/api/purchase/vendors/:id/price-history',      permKey: 'purchase.pricelist.read', expectedRoles: ['Owner', 'Admin', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
+  // Wave 11 vendor RFQ tender flow
+  { method: 'GET',  path: '/api/purchase/rfqs',                           permKey: 'purchase.rfq.read',      expectedRoles: ['Owner', 'Admin', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'VendorPortal'] },
+  { method: 'GET',  path: '/api/purchase/rfqs/:id',                       permKey: 'purchase.rfq.read',      expectedRoles: ['Owner', 'Admin', 'Accountant', 'Auditor', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser', 'VendorPortal'] },
+  { method: 'POST', path: '/api/purchase/rfqs',                           permKey: 'purchase.rfq.create',    expectedRoles: ['Owner', 'Admin', 'Accountant', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
+  { method: 'POST', path: '/api/purchase/rfqs/:id/send',                  permKey: 'purchase.rfq.send',      expectedRoles: ['Owner', 'Admin', 'Accountant', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
+  { method: 'POST', path: '/api/purchase/rfqs/:id/bids',                  permKey: 'purchase.rfq.update',    expectedRoles: ['Owner', 'Admin', 'Accountant', 'FinanceLead', 'InventoryLead', 'PurchaseLead', 'Purchaser'] },
+  { method: 'POST', path: '/api/purchase/rfqs/:id/award',                 permKey: 'purchase.po.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
 ];
 
 for (const site of ANNOTATED_SITES) {
