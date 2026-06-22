@@ -853,6 +853,45 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_reorder_suggestions_status
       ON reorder_suggestions(org_id, status, created_at DESC);
 
+    -- Wave 10 Worker B — purchase three-way match snapshots.
+    CREATE TABLE IF NOT EXISTS po_receipt_matches (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      ordered_qty REAL NOT NULL,
+      received_qty REAL NOT NULL,
+      variance_qty REAL NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('matched','under_received','over_received')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_po_receipt_matches_order
+      ON po_receipt_matches(org_id, purchase_order_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_receipt_matches_org_created
+      ON po_receipt_matches(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_receipt_matches_line
+      ON po_receipt_matches(org_id, purchase_order_line_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS po_bill_matches (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      ordered_unit_cost INTEGER NOT NULL,
+      billed_unit_cost INTEGER NOT NULL,
+      variance_pct REAL NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('matched','price_increase','price_decrease')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_po_bill_matches_order
+      ON po_bill_matches(org_id, purchase_order_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_bill_matches_org_created
+      ON po_bill_matches(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_bill_matches_line
+      ON po_bill_matches(org_id, purchase_order_line_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS purchase_receipts (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7638,6 +7677,44 @@ function ensurePurchaseLayer(db) {
 
     CREATE INDEX IF NOT EXISTS idx_reorder_suggestions_status
       ON reorder_suggestions(org_id, status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS po_receipt_matches (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      ordered_qty REAL NOT NULL,
+      received_qty REAL NOT NULL,
+      variance_qty REAL NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('matched','under_received','over_received')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_po_receipt_matches_order
+      ON po_receipt_matches(org_id, purchase_order_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_receipt_matches_org_created
+      ON po_receipt_matches(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_receipt_matches_line
+      ON po_receipt_matches(org_id, purchase_order_line_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS po_bill_matches (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      ordered_unit_cost INTEGER NOT NULL,
+      billed_unit_cost INTEGER NOT NULL,
+      variance_pct REAL NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('matched','price_increase','price_decrease')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_po_bill_matches_order
+      ON po_bill_matches(org_id, purchase_order_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_bill_matches_org_created
+      ON po_bill_matches(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_po_bill_matches_line
+      ON po_bill_matches(org_id, purchase_order_line_id, created_at DESC);
   `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS purchase_receipts (

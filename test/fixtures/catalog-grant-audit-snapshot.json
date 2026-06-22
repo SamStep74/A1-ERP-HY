@@ -3,11 +3,11 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 48,
+    "pass": 56,
     "broad": 0,
     "no-legacy": 0,
     "unknown-key": 0,
-    "total": 48
+    "total": 56
   },
   "findings": [
     {
@@ -912,6 +912,158 @@
       "actualRoles": [
         "Accountant",
         "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/reorder-suggestions",
+      "permKey": "purchase.analytics.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/reorder-suggestions/generate",
+      "permKey": "purchase.po.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/reorder-suggestions/:id/accept",
+      "permKey": "purchase.po.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/reorder-suggestions/:id/reject",
+      "permKey": "purchase.po.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/orders/:id/match",
+      "permKey": "purchase.po.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/purchase/orders/:id/match/recompute",
+      "permKey": "purchase.po.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/matches/receipts",
+      "permKey": "purchase.analytics.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/purchase/matches/bills",
+      "permKey": "purchase.analytics.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Operator",
+        "Accountant",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Accountant",
+        "Admin",
+        "Auditor",
+        "Operator",
         "Owner"
       ],
       "extraRoles": []

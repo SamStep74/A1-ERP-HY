@@ -451,6 +451,15 @@ const ANNOTATED_SITES = [
   { method: 'POST', path: '/api/purchase/orders/:id/return',   permKey: 'purchase.return.create', expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
   // finance bill — 1 route uses requireFinanceOperator
   { method: 'POST', path: '/api/purchase/orders/:id/bill',     permKey: 'finance.bill.create',    expectedRoles: ['Owner', 'Admin', 'Accountant'] },
+  // Wave 10 purchase evidence routes
+  { method: 'GET',  path: '/api/purchase/reorder-suggestions',            permKey: 'purchase.analytics.read',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'POST', path: '/api/purchase/reorder-suggestions/generate',   permKey: 'purchase.po.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'POST', path: '/api/purchase/reorder-suggestions/:id/accept', permKey: 'purchase.po.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'POST', path: '/api/purchase/reorder-suggestions/:id/reject', permKey: 'purchase.po.create',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'GET',  path: '/api/purchase/orders/:id/match',               permKey: 'purchase.po.read',       expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'POST', path: '/api/purchase/orders/:id/match/recompute',     permKey: 'purchase.po.update',     expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant'] },
+  { method: 'GET',  path: '/api/purchase/matches/receipts',               permKey: 'purchase.analytics.read',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
+  { method: 'GET',  path: '/api/purchase/matches/bills',                  permKey: 'purchase.analytics.read',expectedRoles: ['Owner', 'Admin', 'Operator', 'Accountant', 'Auditor'] },
 ];
 
 for (const site of ANNOTATED_SITES) {

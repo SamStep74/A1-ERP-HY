@@ -142,6 +142,7 @@ const {
 } = require("./platformTenant");
 const { requirePerm } = require("./rbac/guards");
 const { pickBestVendor, suggestionToPoBody } = require("./purchasing/reorder-suggester");
+const { matchReceipt, matchPrice } = require("./purchasing/three-way-match");
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -930,6 +931,51 @@ function registerApi(app, db, options = {}) {
   }, async request => {
     const suggestionId = normalizePurchasePathId(request.params.id);
     return rejectReorderSuggestion(db, request.user, suggestionId, request.body === undefined ? {} : request.body);
+  });
+
+  // Wave 10 Worker B — PO receipt/bill three-way match snapshots.
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
+  app.get("/api/purchase/orders/:id/match", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.read"),
+    ],
+  }, async request => {
+    const orderId = normalizePurchasePathId(request.params.id);
+    return getPurchaseOrderMatch(db, request.user.org_id, orderId);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
+  app.post("/api/purchase/orders/:id/match/recompute", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.update"),
+    ],
+  }, async request => {
+    const orderId = normalizePurchasePathId(request.params.id);
+    return recomputePurchaseOrderMatch(db, request.user, orderId);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
+  app.get("/api/purchase/matches/receipts", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.analytics.read"),
+    ],
+  }, async request => {
+    const varianceMin = normalizePurchaseVarianceMin(request.query || {});
+    return { matches: listReceiptMatchAlerts(db, request.user.org_id, varianceMin) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
+  app.get("/api/purchase/matches/bills", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.analytics.read"),
+    ],
+  }, async request => {
+    const varianceMin = normalizePurchaseVarianceMin(request.query || {});
+    return { matches: listBillMatchAlerts(db, request.user.org_id, varianceMin) };
   });
 
   // rbac-audit: expected-roles Owner, Admin, Salesperson, Operator, Accountant, Auditor
@@ -42447,6 +42493,8 @@ const ORG_BACKUP_TABLES = [
   "purchase_orders",
   "purchase_order_lines",
   "reorder_suggestions",
+  "po_receipt_matches",
+  "po_bill_matches",
   "purchase_receipts",
   "purchase_returns",
   "integration_connectors",
@@ -50843,6 +50891,268 @@ function throwReorderSuggestionNotFound() {
   throw err;
 }
 
+function recomputePurchaseOrderMatch(db, user, orderId) {
+  const order = getPurchaseOrder(db, user.org_id, orderId);
+  if (!order) throwPurchaseOrderNotFound();
+  const bill = order.billId ? getPurchaseLinkedBill(db, user.org_id, order.billId) : null;
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    const insertReceiptMatch = db.prepare(`
+      INSERT INTO po_receipt_matches (
+        id, org_id, purchase_order_id, purchase_order_line_id,
+        ordered_qty, received_qty, variance_qty, status, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertBillMatch = db.prepare(`
+      INSERT INTO po_bill_matches (
+        id, org_id, purchase_order_id, purchase_order_line_id,
+        ordered_unit_cost, billed_unit_cost, variance_pct, status, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const line of order.lines) {
+      const receipt = matchReceipt(line.quantity, line.receivedQuantity);
+      insertReceiptMatch.run(
+        randomId("po-receipt-match"),
+        user.org_id,
+        order.id,
+        line.id,
+        line.quantity,
+        line.receivedQuantity,
+        receipt.variance,
+        receipt.status,
+        now
+      );
+      if (bill) {
+        const billedUnitCost = allocateBilledUnitCost(order, bill, line);
+        const price = matchPrice(line.unitCost, billedUnitCost);
+        insertBillMatch.run(
+          randomId("po-bill-match"),
+          user.org_id,
+          order.id,
+          line.id,
+          line.unitCost,
+          billedUnitCost,
+          roundMatchRatio(price.variancePct),
+          price.status,
+          now
+        );
+      }
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.order.match_recomputed",
+      subjectType: "purchase_order",
+      subjectId: order.id,
+      status: "recomputed",
+      payload: { orderNumber: order.orderNumber, lineCount: order.lines.length, billId: order.billId || "" }
+    });
+    audit(db, user.org_id, user.id, "purchase.order.match_recomputed", {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      lineCount: order.lines.length,
+      billId: order.billId || ""
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return getPurchaseOrderMatch(db, user.org_id, order.id);
+}
+
+function allocateBilledUnitCost(order, bill, line) {
+  if (!bill || !Number(line.quantity || 0)) return Number(line.unitCost || 0);
+  if (!Number(order.subtotal || 0)) return Number(line.unitCost || 0);
+  const lineShare = Number(line.subtotal || 0) / Number(order.subtotal || 1);
+  const billedLineSubtotal = Math.round(Number(bill.subtotal || 0) * lineShare);
+  return Math.max(0, Math.round(billedLineSubtotal / Number(line.quantity || 1)));
+}
+
+function roundMatchRatio(value) {
+  return Math.round(Number(value || 0) * 1000000) / 1000000;
+}
+
+function getPurchaseOrderMatch(db, orgId, orderId) {
+  const order = getPurchaseOrder(db, orgId, orderId);
+  if (!order) throwPurchaseOrderNotFound();
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    billId: order.billId,
+    receiptMatches: latestReceiptMatchesForOrder(db, orgId, order.id),
+    billMatches: latestBillMatchesForOrder(db, orgId, order.id)
+  };
+}
+
+function latestReceiptMatchesForOrder(db, orgId, orderId) {
+  return latestByLine(db.prepare(`
+    SELECT po_receipt_matches.*,
+      po_receipt_matches.rowid AS snapshot_rowid,
+      purchase_orders.order_number AS order_number,
+      catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name
+    FROM po_receipt_matches
+    JOIN purchase_orders ON purchase_orders.id = po_receipt_matches.purchase_order_id
+      AND purchase_orders.org_id = po_receipt_matches.org_id
+    JOIN purchase_order_lines ON purchase_order_lines.id = po_receipt_matches.purchase_order_line_id
+      AND purchase_order_lines.org_id = po_receipt_matches.org_id
+    JOIN catalog_items ON catalog_items.id = purchase_order_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_order_lines.org_id
+    WHERE po_receipt_matches.org_id = ? AND po_receipt_matches.purchase_order_id = ?
+    ORDER BY po_receipt_matches.created_at DESC, po_receipt_matches.rowid DESC
+  `).all(orgId, orderId)).map(formatReceiptMatch);
+}
+
+function latestBillMatchesForOrder(db, orgId, orderId) {
+  return latestByLine(db.prepare(`
+    SELECT po_bill_matches.*,
+      po_bill_matches.rowid AS snapshot_rowid,
+      purchase_orders.order_number AS order_number,
+      catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name
+    FROM po_bill_matches
+    JOIN purchase_orders ON purchase_orders.id = po_bill_matches.purchase_order_id
+      AND purchase_orders.org_id = po_bill_matches.org_id
+    JOIN purchase_order_lines ON purchase_order_lines.id = po_bill_matches.purchase_order_line_id
+      AND purchase_order_lines.org_id = po_bill_matches.org_id
+    JOIN catalog_items ON catalog_items.id = purchase_order_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_order_lines.org_id
+    WHERE po_bill_matches.org_id = ? AND po_bill_matches.purchase_order_id = ?
+    ORDER BY po_bill_matches.created_at DESC, po_bill_matches.rowid DESC
+  `).all(orgId, orderId)).map(formatBillMatch);
+}
+
+function listReceiptMatchAlerts(db, orgId, varianceMin) {
+  return db.prepare(`
+    SELECT po_receipt_matches.*,
+      purchase_orders.order_number AS order_number,
+      catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name
+    FROM po_receipt_matches
+    JOIN purchase_orders ON purchase_orders.id = po_receipt_matches.purchase_order_id
+      AND purchase_orders.org_id = po_receipt_matches.org_id
+    JOIN purchase_order_lines ON purchase_order_lines.id = po_receipt_matches.purchase_order_line_id
+      AND purchase_order_lines.org_id = po_receipt_matches.org_id
+    JOIN catalog_items ON catalog_items.id = purchase_order_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_order_lines.org_id
+    WHERE po_receipt_matches.org_id = ?
+      AND po_receipt_matches.status != 'matched'
+      AND ABS(CASE
+        WHEN po_receipt_matches.ordered_qty = 0 THEN 0
+        ELSE po_receipt_matches.variance_qty / po_receipt_matches.ordered_qty
+      END) >= ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM po_receipt_matches newer
+        WHERE newer.org_id = po_receipt_matches.org_id
+          AND newer.purchase_order_line_id = po_receipt_matches.purchase_order_line_id
+          AND (
+            newer.created_at > po_receipt_matches.created_at
+            OR (newer.created_at = po_receipt_matches.created_at AND newer.rowid > po_receipt_matches.rowid)
+          )
+      )
+    ORDER BY po_receipt_matches.created_at DESC, po_receipt_matches.rowid DESC
+  `).all(orgId, varianceMin)
+    .map(formatReceiptMatch)
+    .filter(match => match.status !== "matched");
+}
+
+function listBillMatchAlerts(db, orgId, varianceMin) {
+  return db.prepare(`
+    SELECT po_bill_matches.*,
+      purchase_orders.order_number AS order_number,
+      catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name
+    FROM po_bill_matches
+    JOIN purchase_orders ON purchase_orders.id = po_bill_matches.purchase_order_id
+      AND purchase_orders.org_id = po_bill_matches.org_id
+    JOIN purchase_order_lines ON purchase_order_lines.id = po_bill_matches.purchase_order_line_id
+      AND purchase_order_lines.org_id = po_bill_matches.org_id
+    JOIN catalog_items ON catalog_items.id = purchase_order_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_order_lines.org_id
+    WHERE po_bill_matches.org_id = ?
+      AND po_bill_matches.status != 'matched'
+      AND ABS(po_bill_matches.variance_pct) >= ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM po_bill_matches newer
+        WHERE newer.org_id = po_bill_matches.org_id
+          AND newer.purchase_order_line_id = po_bill_matches.purchase_order_line_id
+          AND (
+            newer.created_at > po_bill_matches.created_at
+            OR (newer.created_at = po_bill_matches.created_at AND newer.rowid > po_bill_matches.rowid)
+          )
+      )
+    ORDER BY po_bill_matches.created_at DESC, po_bill_matches.rowid DESC
+  `).all(orgId, varianceMin)
+    .map(formatBillMatch)
+    .filter(match => match.status !== "matched");
+}
+
+function latestByLine(rows) {
+  const seen = new Set();
+  const latest = [];
+  for (const row of rows) {
+    if (seen.has(row.purchase_order_line_id)) continue;
+    seen.add(row.purchase_order_line_id);
+    latest.push(row);
+  }
+  return latest;
+}
+
+function formatReceiptMatch(row) {
+  const orderedQty = Number(row.ordered_qty || 0);
+  const varianceQty = Number(row.variance_qty || 0);
+  return {
+    id: row.id,
+    purchaseOrderId: row.purchase_order_id,
+    purchaseOrderNumber: row.order_number,
+    purchaseOrderLineId: row.purchase_order_line_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    orderedQty,
+    receivedQty: Number(row.received_qty || 0),
+    varianceQty,
+    varianceRatio: orderedQty ? roundMatchRatio(varianceQty / orderedQty) : 0,
+    status: row.status,
+    createdAt: row.created_at
+  };
+}
+
+function formatBillMatch(row) {
+  return {
+    id: row.id,
+    purchaseOrderId: row.purchase_order_id,
+    purchaseOrderNumber: row.order_number,
+    purchaseOrderLineId: row.purchase_order_line_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    orderedUnitCost: row.ordered_unit_cost,
+    billedUnitCost: row.billed_unit_cost,
+    variancePct: Number(row.variance_pct || 0),
+    status: row.status,
+    createdAt: row.created_at
+  };
+}
+
+function normalizePurchaseVarianceMin(query) {
+  const value = Object.prototype.hasOwnProperty.call(query, "variance_min")
+    ? query.variance_min
+    : query.varianceMin;
+  if (value === undefined || value === "") return 0.05;
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidPurchaseMetadata();
+  const text = typeof value === "string" ? value.trim() : value;
+  if (typeof text === "string" && (!text || /[\x00-\x1f\x7f]/.test(text))) throwInvalidPurchaseMetadata();
+  const amount = Number(text);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 10) throwInvalidPurchaseMetadata();
+  return amount;
+}
+
 function summarizePurchaseLines(orders) {
   return orders.reduce((stats, order) => {
     for (const line of order.lines || []) {
@@ -51484,8 +51794,8 @@ function billPurchaseOrder(db, user, orderId, body) {
     billResult = createFinanceBillFromInput(db, user, {
       supplier: order.supplier,
       description: input.description,
-      subtotal: order.subtotal,
-      vat: order.vat,
+      subtotal: input.subtotal,
+      vat: input.vat,
       billDate: input.billDate,
       dueDate: input.dueDate
     });
@@ -51502,9 +51812,9 @@ function billPurchaseOrder(db, user, orderId, body) {
       subjectType: "purchase_order",
       subjectId: orderId,
       status: "billed",
-      payload: { orderNumber: order.orderNumber, billId: billResult.bill.id, total: order.total }
+      payload: { orderNumber: order.orderNumber, billId: billResult.bill.id, poTotal: order.total, billTotal: billResult.bill.total }
     });
-    audit(db, user.org_id, user.id, "purchase.order.billed", { orderId, orderNumber: order.orderNumber, billId: billResult.bill.id, total: order.total });
+    audit(db, user.org_id, user.id, "purchase.order.billed", { orderId, orderNumber: order.orderNumber, billId: billResult.bill.id, poTotal: order.total, billTotal: billResult.bill.total });
     billedOrder = getPurchaseOrder(db, user.org_id, orderId);
     db.exec("COMMIT");
   } catch (err) {
@@ -51838,10 +52148,20 @@ function normalizePurchaseReceiptLines(body) {
 function normalizePurchaseBillBody(body, order) {
   if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
   const billDate = normalizePurchaseDate(body, "billDate", { fallback: order.receivedAt || order.orderDate });
+  const hasSubtotal = Object.prototype.hasOwnProperty.call(body, "subtotal") && body.subtotal !== "";
+  const hasVat = Object.prototype.hasOwnProperty.call(body, "vat") && body.vat !== "";
+  const subtotal = normalizePurchaseMoney(body, "subtotal", { fallback: order.subtotal, min: 1 });
+  const vatFallback = hasSubtotal && !hasVat && Number(order.subtotal || 0)
+    ? Math.round(subtotal * Number(order.vat || 0) / Number(order.subtotal || 1))
+    : order.vat;
+  const vat = normalizePurchaseMoney(body, "vat", { fallback: vatFallback });
+  if (!Number.isSafeInteger(subtotal + vat)) throwInvalidPurchaseMetadata();
   return {
     billDate,
     dueDate: normalizePurchaseDate(body, "dueDate", { fallback: billDate }),
-    description: normalizePurchaseText(body, "description", { fallback: `Vendor bill for ${order.orderNumber}`, maxLength: 200 })
+    description: normalizePurchaseText(body, "description", { fallback: `Vendor bill for ${order.orderNumber}`, maxLength: 200 }),
+    subtotal,
+    vat
   };
 }
 

@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-22T18:15:41.520Z`
+Generated: `2026-06-22T18:43:05.073Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,12 +14,12 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 48 |
+| PASS — perm grants ⊆ legacy allow-list | 56 |
 | BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
 | NO LEGACY ALLOW-LIST — needs manual annotation | 0 |
 | UNKNOWN PERM KEY — not in current catalog | 0 |
 
-Total entries audited: **48**
+Total entries audited: **56**
 
 ## PASS — perm grants ⊆ legacy allow-list
 
@@ -65,6 +65,14 @@ Total entries audited: **48**
 | `POST /api/purchase/orders/:id/receive` | `purchase.receipt.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
 | `POST /api/purchase/orders/:id/return` | `purchase.return.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
 | `POST /api/purchase/orders/:id/bill` | `finance.bill.create` | `Owner`, `Admin`, `Accountant` | `Accountant`, `Admin`, `Owner` |
+| `GET /api/purchase/reorder-suggestions` | `purchase.analytics.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
+| `POST /api/purchase/reorder-suggestions/generate` | `purchase.po.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
+| `POST /api/purchase/reorder-suggestions/:id/accept` | `purchase.po.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
+| `POST /api/purchase/reorder-suggestions/:id/reject` | `purchase.po.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
+| `GET /api/purchase/orders/:id/match` | `purchase.po.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
+| `POST /api/purchase/orders/:id/match/recompute` | `purchase.po.update` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
+| `GET /api/purchase/matches/receipts` | `purchase.analytics.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
+| `GET /api/purchase/matches/bills` | `purchase.analytics.read` | `Owner`, `Admin`, `Operator`, `Accountant`, `Auditor` | `Accountant`, `Admin`, `Auditor`, `Operator`, `Owner` |
 | `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |
 | `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | `Owner`, `Admin`, `Salesperson` | _(empty)_ |
 | `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |
