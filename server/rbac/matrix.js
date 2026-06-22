@@ -321,6 +321,7 @@ const PERMISSION_SETS = Object.freeze({
       'inv.stock.adjust',
       'inv.stock.scrap',
       'inv.stock.count',
+      'inv.stock.reserve',
       'inv.valuation.read',
       'inv.lot.read',
       'inv.lot.update',

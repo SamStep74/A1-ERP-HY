@@ -221,6 +221,7 @@ const PERMISSIONS = Object.freeze({
   'inv.stock.adjust':           { category: 'inv', sensitivity: 'high',    label: 'Adjust stock',         description: 'Adjust stock with reason code.' },
   'inv.stock.scrap':            { category: 'inv', sensitivity: 'high',    label: 'Scrap stock',          description: 'Scrap stock with reason code.' },
   'inv.stock.count':            { category: 'inv', sensitivity: 'high',    label: 'Cycle count',          description: 'Run cycle counts and adjust variances.' },
+  'inv.stock.reserve':          { category: 'inv', sensitivity: 'medium',  label: 'Reserve stock',        description: 'Create or release stock reservations against sales orders.' },
   'inv.valuation.read':         { category: 'inv', sensitivity: 'medium',  label: 'View stock valuation', description: 'View stock valuation reports.' },
   'inv.valuation.run':          { category: 'inv', sensitivity: 'high',    label: 'Run stock valuation',  description: 'Recompute stock valuation.' },
   'inv.lot.read':               { category: 'inv', sensitivity: 'low',     label: 'View lots/serials',    description: 'View lot and serial numbers.' },
