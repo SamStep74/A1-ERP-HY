@@ -1,6 +1,6 @@
 # Catalog Grant Audit
 
-Generated: `2026-06-22T19:54:46.354Z`
+Generated: `2026-06-22T20:48:14.109Z`
 
 This report is the output of `scripts/lint-rbac-broad-grants.js`.
 It proves the invariant the Wave 3 migration workers violated:
@@ -14,12 +14,12 @@ It proves the invariant the Wave 3 migration workers violated:
 
 | Section | Count |
 |---|---|
-| PASS — perm grants ⊆ legacy allow-list | 65 |
+| PASS — perm grants ⊆ legacy allow-list | 80 |
 | BROAD GRANT — perm grants ⊃ legacy allow-list | 0 |
 | NO LEGACY ALLOW-LIST — needs manual annotation | 0 |
 | UNKNOWN PERM KEY — not in current catalog | 0 |
 
-Total entries audited: **65**
+Total entries audited: **80**
 
 ## PASS — perm grants ⊆ legacy allow-list
 
@@ -82,6 +82,21 @@ Total entries audited: **65**
 | `POST /api/purchase/rfqs/:id/send` | `purchase.rfq.send` | `Owner`, `Admin`, `Accountant`, `FinanceLead`, `InventoryLead`, `PurchaseLead`, `Purchaser` | `Accountant`, `Admin`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser` |
 | `POST /api/purchase/rfqs/:id/bids` | `purchase.rfq.update` | `Owner`, `Admin`, `Accountant`, `FinanceLead`, `InventoryLead`, `PurchaseLead`, `Purchaser` | `Accountant`, `Admin`, `FinanceLead`, `InventoryLead`, `Owner`, `PurchaseLead`, `Purchaser` |
 | `POST /api/purchase/rfqs/:id/award` | `purchase.po.create` | `Owner`, `Admin`, `Operator`, `Accountant` | `Accountant`, `Admin`, `Operator`, `Owner` |
+| `GET /api/manufacturing/boms` | `mfg.bom.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `GET /api/manufacturing/boms/:id` | `mfg.bom.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `POST /api/manufacturing/boms` | `mfg.bom.update` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `PATCH /api/manufacturing/boms/:id` | `mfg.bom.update` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `POST /api/manufacturing/boms/:id/version` | `mfg.bom.version` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `GET /api/manufacturing/work-centers` | `mfg.work_center.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `POST /api/manufacturing/work-centers` | `mfg.work_center.update` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `PATCH /api/manufacturing/work-centers/:id` | `mfg.work_center.update` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `GET /api/manufacturing/work-orders` | `mfg.work_order.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `GET /api/manufacturing/work-orders/:id` | `mfg.work_order.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
+| `POST /api/manufacturing/work-orders` | `mfg.work_order.create` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `PATCH /api/manufacturing/work-orders/:id` | `mfg.work_order.update` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `POST /api/manufacturing/work-orders/:id/release` | `mfg.work_order.release` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `POST /api/manufacturing/work-orders/:id/cancel` | `mfg.work_order.cancel` | `Owner`, `Admin` | `Admin`, `Owner` |
+| `GET /api/manufacturing/shop-floor` | `mfg.work_order.read` | `Owner`, `Admin`, `Auditor` | `Admin`, `Auditor`, `Owner` |
 | `GET /api/pilots/templates/clinic-wellness` | `pilot.template.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |
 | `POST /api/pilots/templates/clinic-wellness/install` | `pilot.template.install` | `Owner`, `Admin`, `Salesperson` | _(empty)_ |
 | `GET /api/pilots/clinic-wellness/owner-briefs` | `pilot.brief.read` | `Owner`, `Admin`, `Salesperson`, `Operator`, `Accountant`, `Auditor` | _(empty)_ |

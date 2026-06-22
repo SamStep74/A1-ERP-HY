@@ -3,11 +3,11 @@
   "capturedAt": "LOCKED",
   "note": "Lock-in snapshot for scripts/lint-rbac-broad-grants.js. Refresh with: node scripts/snapshot-catalog-grant-audit.js",
   "counts": {
-    "pass": 65,
+    "pass": 80,
     "broad": 0,
     "no-legacy": 0,
     "unknown-key": 0,
-    "total": 65
+    "total": 80
   },
   "findings": [
     {
@@ -1282,6 +1282,228 @@
         "Accountant",
         "Admin",
         "Operator",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/manufacturing/boms",
+      "permKey": "mfg.bom.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/manufacturing/boms/:id",
+      "permKey": "mfg.bom.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/manufacturing/boms",
+      "permKey": "mfg.bom.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "PATCH /api/manufacturing/boms/:id",
+      "permKey": "mfg.bom.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/manufacturing/boms/:id/version",
+      "permKey": "mfg.bom.version",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/manufacturing/work-centers",
+      "permKey": "mfg.work_center.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/manufacturing/work-centers",
+      "permKey": "mfg.work_center.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "PATCH /api/manufacturing/work-centers/:id",
+      "permKey": "mfg.work_center.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/manufacturing/work-orders",
+      "permKey": "mfg.work_order.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/manufacturing/work-orders/:id",
+      "permKey": "mfg.work_order.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/manufacturing/work-orders",
+      "permKey": "mfg.work_order.create",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "PATCH /api/manufacturing/work-orders/:id",
+      "permKey": "mfg.work_order.update",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/manufacturing/work-orders/:id/release",
+      "permKey": "mfg.work_order.release",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "POST /api/manufacturing/work-orders/:id/cancel",
+      "permKey": "mfg.work_order.cancel",
+      "expectedRoles": [
+        "Owner",
+        "Admin"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Owner"
+      ],
+      "extraRoles": []
+    },
+    {
+      "kind": "pass",
+      "source": "GET /api/manufacturing/shop-floor",
+      "permKey": "mfg.work_order.read",
+      "expectedRoles": [
+        "Owner",
+        "Admin",
+        "Auditor"
+      ],
+      "actualRoles": [
+        "Admin",
+        "Auditor",
         "Owner"
       ],
       "extraRoles": []

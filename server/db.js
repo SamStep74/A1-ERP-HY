@@ -263,6 +263,7 @@ function openDatabase(dbPath) {
   ensureCatalogLayer(db);
   ensureInventoryLayer(db);
   ensurePurchaseLayer(db);
+  ensureManufacturingLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
   ensureMoneyPrecisionMigration(db);
@@ -7973,6 +7974,161 @@ function ensurePurchaseLayer(db) {
   for (const org of orgs) seedPurchaseVendors(db, org.id);
 }
 
+function ensureManufacturingLayer(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mfg_work_centers (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active','inactive')) DEFAULT 'active',
+      location_id TEXT REFERENCES stock_locations(id) ON DELETE SET NULL,
+      capacity_per_day INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, code)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_centers_status
+      ON mfg_work_centers(org_id, status, code);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_centers_location
+      ON mfg_work_centers(org_id, location_id, status);
+
+    CREATE TABLE IF NOT EXISTS mfg_boms (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      bom_number TEXT NOT NULL,
+      product_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      revision INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL CHECK (status IN ('draft','active','archived')) DEFAULT 'draft',
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_of_measure TEXT NOT NULL DEFAULT 'unit',
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, bom_number, revision)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_boms_product
+      ON mfg_boms(org_id, product_item_id, status, revision DESC);
+
+    CREATE TABLE IF NOT EXISTS mfg_bom_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      bom_id TEXT NOT NULL REFERENCES mfg_boms(id) ON DELETE CASCADE,
+      component_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      scrap_percent REAL NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_bom_lines_bom
+      ON mfg_bom_lines(org_id, bom_id);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_bom_lines_component
+      ON mfg_bom_lines(org_id, component_item_id);
+
+    CREATE TABLE IF NOT EXISTS mfg_work_orders (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      work_order_number TEXT NOT NULL,
+      bom_id TEXT NOT NULL REFERENCES mfg_boms(id) ON DELETE RESTRICT,
+      product_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      work_center_id TEXT REFERENCES mfg_work_centers(id) ON DELETE SET NULL,
+      production_location_id TEXT REFERENCES stock_locations(id) ON DELETE SET NULL,
+      status TEXT NOT NULL CHECK (status IN ('planned','released','cancelled')) DEFAULT 'planned',
+      planned_quantity INTEGER NOT NULL CHECK (planned_quantity > 0),
+      planned_start_date TEXT NOT NULL DEFAULT '',
+      due_date TEXT NOT NULL DEFAULT '',
+      released_at TEXT,
+      cancelled_at TEXT,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, work_order_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_orders_status
+      ON mfg_work_orders(org_id, status, due_date, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_orders_bom
+      ON mfg_work_orders(org_id, bom_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_orders_product
+      ON mfg_work_orders(org_id, product_item_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_orders_center
+      ON mfg_work_orders(org_id, work_center_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_orders_location
+      ON mfg_work_orders(org_id, production_location_id, status);
+
+    CREATE TABLE IF NOT EXISTS mfg_work_order_materials (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      work_order_id TEXT NOT NULL REFERENCES mfg_work_orders(id) ON DELETE CASCADE,
+      bom_line_id TEXT REFERENCES mfg_bom_lines(id) ON DELETE SET NULL,
+      component_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      source_location_id TEXT REFERENCES stock_locations(id) ON DELETE SET NULL,
+      required_quantity INTEGER NOT NULL CHECK (required_quantity > 0),
+      available_quantity INTEGER NOT NULL DEFAULT 0,
+      shortage_quantity INTEGER NOT NULL DEFAULT 0,
+      estimated_unit_cost INTEGER NOT NULL DEFAULT 0,
+      estimated_total_cost INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK (status IN ('ready','short')) DEFAULT 'ready',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_order_materials_order
+      ON mfg_work_order_materials(org_id, work_order_id);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_order_materials_bom_line
+      ON mfg_work_order_materials(org_id, bom_line_id);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_order_materials_component
+      ON mfg_work_order_materials(org_id, component_item_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_mfg_work_order_materials_location
+      ON mfg_work_order_materials(org_id, source_location_id, status);
+  `);
+
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of orgs) seedManufacturingCore(db, org.id);
+}
+
+function seedManufacturingCore(db, orgId) {
+  const now = new Date().toISOString();
+  const location = db.prepare(`
+    SELECT id FROM stock_locations
+    WHERE org_id = ? AND code = 'WH/STOCK'
+  `).get(orgId);
+  db.prepare(`
+    INSERT OR IGNORE INTO mfg_work_centers (
+      id, org_id, code, name, status, location_id, capacity_per_day, note,
+      created_by_user_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+  `).run(
+    manufacturingSeedId(orgId, "mfgwc-main-workshop"),
+    orgId,
+    "MFG/SHOP",
+    "Main workshop",
+    location?.id || null,
+    12,
+    "Seeded work center for light manufacturing and repair planning.",
+    null,
+    now,
+    now
+  );
+}
+
 function ensureMarketingLayer(db) {
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
@@ -9019,6 +9175,12 @@ function stockSeedId(orgId, baseId) {
 }
 
 function purchaseSeedId(orgId, baseId) {
+  if (orgId === "org-armosphera-demo") return baseId;
+  const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
+  return `${baseId}-${suffix}`;
+}
+
+function manufacturingSeedId(orgId, baseId) {
   if (orgId === "org-armosphera-demo") return baseId;
   const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
   return `${baseId}-${suffix}`;

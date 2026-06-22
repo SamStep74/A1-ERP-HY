@@ -145,6 +145,7 @@ const { pickBestVendor, suggestionToPoBody } = require("./purchasing/reorder-sug
 const { matchReceipt, matchPrice } = require("./purchasing/three-way-match");
 const { buildVendor360 } = require("./purchasing/vendor-360");
 const { buildAwardPurchaseOrderBody, rankRfqBids } = require("./purchasing/vendor-rfq");
+const { registerManufacturingRoutes } = require("./manufacturing");
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -187,6 +188,7 @@ function buildApp(options = {}) {
   registerApi(app, db, { ...options, env });
   registerStatic(app);
   require("./localizationRoutes").registerLocalizationRoutes(app);
+  registerManufacturingRoutes(app);
 
   // Wave 2 — surface CopilotScopeError fields in the JSON response. The
   // default Fastify error handler honors `err.statusCode` but drops the
@@ -42590,6 +42592,11 @@ const ORG_BACKUP_TABLES = [
   "stock_moves",
   "stock_reservations",
   "stock_shortages",
+  "mfg_work_centers",
+  "mfg_boms",
+  "mfg_bom_lines",
+  "mfg_work_orders",
+  "mfg_work_order_materials",
   "purchase_vendors",
   "purchase_vendor_prices",
   "purchase_orders",
