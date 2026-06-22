@@ -141,6 +141,7 @@ const {
   sanitizePlatformError
 } = require("./platformTenant");
 const { requirePerm } = require("./rbac/guards");
+const { pickBestVendor, suggestionToPoBody } = require("./purchasing/reorder-suggester");
 
 function buildApp(options = {}) {
   const env = options.env || process.env;
@@ -745,8 +746,7 @@ function registerApi(app, db, options = {}) {
       requirePerm("inv.stock.read")
     ]
   }, async request => {
-    const user = await app.auth(request);
-    requireInventoryReader(user);
+    const user = request.user;
     const filters = normalizeReservationListQuery(request.query || {});
     return { reservations: listStockReservations(db, user.org_id, filters) };
   });
@@ -758,8 +758,7 @@ function registerApi(app, db, options = {}) {
       requirePerm("inv.stock.reserve")
     ]
   }, async request => {
-    const user = await app.auth(request);
-    requireInventoryWriter(user);
+    const user = request.user;
     const reservation = createStockReservation(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, reservation };
   });
@@ -771,8 +770,7 @@ function registerApi(app, db, options = {}) {
       requirePerm("inv.stock.reserve")
     ]
   }, async request => {
-    const user = await app.auth(request);
-    requireInventoryWriter(user);
+    const user = request.user;
     const reservationId = normalizeReservationPathId(request.params.id);
     const reservation = releaseStockReservation(db, user, reservationId, request.body === undefined ? {} : request.body);
     return { ok: true, reservation };
@@ -789,8 +787,7 @@ function registerApi(app, db, options = {}) {
       requirePerm("inv.stock.read")
     ]
   }, async request => {
-    const user = await app.auth(request);
-    requireInventoryReader(user);
+    const user = request.user;
     const filters = normalizeShortageListQuery(request.query || {});
     return { shortages: listStockShortages(db, user.org_id, filters) };
   });
@@ -887,6 +884,52 @@ function registerApi(app, db, options = {}) {
   }, async request => {
     const orderId = normalizePurchasePathId(request.params.id);
     return billPurchaseOrder(db, request.user, orderId, request.body === undefined ? {} : request.body);
+  });
+
+  // Wave 10 Worker A — shortage -> reorder suggestion -> RFQ purchase order.
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant, Auditor
+  app.get("/api/purchase/reorder-suggestions", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.analytics.read"),
+    ],
+  }, async request => {
+    const filters = normalizeReorderSuggestionListQuery(request.query || {});
+    return { suggestions: getReorderSuggestions(db, request.user.org_id, filters) };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
+  app.post("/api/purchase/reorder-suggestions/generate", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.create"),
+    ],
+  }, async request => {
+    const generatedIds = ensurePendingReorderSuggestions(db, request.user.org_id);
+    const suggestions = getReorderSuggestions(db, request.user.org_id, { status: "pending" });
+    return { ok: true, generatedCount: generatedIds.length, suggestions };
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
+  app.post("/api/purchase/reorder-suggestions/:id/accept", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.create"),
+    ],
+  }, async request => {
+    const suggestionId = normalizePurchasePathId(request.params.id);
+    return acceptReorderSuggestion(db, request.user, suggestionId, request.body === undefined ? {} : request.body);
+  });
+
+  // rbac-audit: expected-roles Owner, Admin, Operator, Accountant
+  app.post("/api/purchase/reorder-suggestions/:id/reject", {
+    preHandler: [
+      async request => { request.user = await app.auth(request); },
+      requirePerm("purchase.po.create"),
+    ],
+  }, async request => {
+    const suggestionId = normalizePurchasePathId(request.params.id);
+    return rejectReorderSuggestion(db, request.user, suggestionId, request.body === undefined ? {} : request.body);
   });
 
   // rbac-audit: expected-roles Owner, Admin, Salesperson, Operator, Accountant, Auditor
@@ -42397,10 +42440,13 @@ const ORG_BACKUP_TABLES = [
   "stock_locations",
   "stock_quants",
   "stock_moves",
+  "stock_reservations",
+  "stock_shortages",
   "purchase_vendors",
   "purchase_vendor_prices",
   "purchase_orders",
   "purchase_order_lines",
+  "reorder_suggestions",
   "purchase_receipts",
   "purchase_returns",
   "integration_connectors",
@@ -50510,6 +50556,291 @@ function getPurchaseAnalytics(db, orgId) {
       coveragePercent: summary.vendorPriceCoveragePercent
     }
   };
+}
+
+function ensurePendingReorderSuggestions(db, orgId) {
+  const shortages = db.prepare(`
+    SELECT stock_shortages.*, catalog_items.name AS catalog_name
+    FROM stock_shortages
+    JOIN catalog_items ON catalog_items.id = stock_shortages.item_id
+      AND catalog_items.org_id = stock_shortages.org_id
+    WHERE stock_shortages.org_id = ?
+      AND stock_shortages.status = 'open'
+      AND stock_shortages.shortage_qty > 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM reorder_suggestions
+        WHERE reorder_suggestions.org_id = stock_shortages.org_id
+          AND reorder_suggestions.shortage_id = stock_shortages.id
+      )
+    ORDER BY stock_shortages.created_at, stock_shortages.id
+  `).all(orgId);
+  if (shortages.length === 0) return [];
+
+  const insertSuggestion = db.prepare(`
+    INSERT OR IGNORE INTO reorder_suggestions (
+      id, org_id, shortage_id, suggested_vendor_id, suggested_vendor_price_id,
+      suggested_unit_cost, suggested_quantity, currency, status, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+  `);
+  const now = new Date().toISOString();
+  const asOfDate = armeniaDateString();
+  const created = [];
+  db.exec("BEGIN");
+  try {
+    for (const shortage of shortages) {
+      const prices = getPurchaseVendorPricesForItem(db, orgId, shortage.item_id);
+      const shortageQuantity = Math.ceil(Number(shortage.shortage_qty || 0));
+      const picked = pickBestVendor(prices, shortage.item_id, shortageQuantity, { asOfDate });
+      const suggestedQuantity = Math.max(shortageQuantity, picked?.minQuantity || 0);
+      const suggestionId = randomId("reorder-suggestion");
+      insertSuggestion.run(
+        suggestionId,
+        orgId,
+        shortage.id,
+        picked?.vendorId || null,
+        picked?.vendorPriceId || null,
+        picked?.unitCost || 0,
+        suggestedQuantity,
+        picked?.currency || activeCurrencyCode(),
+        now
+      );
+      created.push(suggestionId);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return created;
+}
+
+function getPurchaseVendorPricesForItem(db, orgId, itemId) {
+  return db.prepare(`
+    SELECT purchase_vendor_prices.*, purchase_vendors.status AS vendor_status
+    FROM purchase_vendor_prices
+    JOIN purchase_vendors ON purchase_vendors.org_id = purchase_vendor_prices.org_id
+      AND purchase_vendors.id = purchase_vendor_prices.vendor_id
+    WHERE purchase_vendor_prices.org_id = ?
+      AND purchase_vendor_prices.catalog_item_id = ?
+      AND purchase_vendors.status = 'active'
+    ORDER BY purchase_vendor_prices.status = 'active' DESC,
+      purchase_vendor_prices.valid_from DESC,
+      purchase_vendor_prices.created_at DESC,
+      purchase_vendor_prices.unit_cost ASC
+  `).all(orgId, itemId).filter(row => row.vendor_status === "active");
+}
+
+function getReorderSuggestions(db, orgId, filters = {}) {
+  const where = ["reorder_suggestions.org_id = ?"];
+  const params = [orgId];
+  if (filters.status) {
+    where.push("reorder_suggestions.status = ?");
+    params.push(filters.status);
+  }
+  return db.prepare(`
+    SELECT reorder_suggestions.*,
+      stock_shortages.item_id AS shortage_item_id,
+      stock_shortages.location_id AS shortage_location_id,
+      stock_shortages.source_type AS shortage_source_type,
+      stock_shortages.source_id AS shortage_source_id,
+      stock_shortages.requested_qty AS shortage_requested_qty,
+      stock_shortages.available_qty AS shortage_available_qty,
+      stock_shortages.shortage_qty AS shortage_qty,
+      stock_shortages.status AS shortage_status,
+      catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name,
+      stock_locations.code AS location_code,
+      stock_locations.name AS location_name,
+      purchase_vendors.name AS vendor_name,
+      purchase_orders.order_number AS created_purchase_order_number
+    FROM reorder_suggestions
+    JOIN stock_shortages ON stock_shortages.id = reorder_suggestions.shortage_id
+      AND stock_shortages.org_id = reorder_suggestions.org_id
+    JOIN catalog_items ON catalog_items.id = stock_shortages.item_id
+      AND catalog_items.org_id = stock_shortages.org_id
+    JOIN stock_locations ON stock_locations.id = stock_shortages.location_id
+      AND stock_locations.org_id = stock_shortages.org_id
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = reorder_suggestions.suggested_vendor_id
+      AND purchase_vendors.org_id = reorder_suggestions.org_id
+    LEFT JOIN purchase_orders ON purchase_orders.id = reorder_suggestions.created_purchase_order_id
+      AND purchase_orders.org_id = reorder_suggestions.org_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY reorder_suggestions.created_at DESC, reorder_suggestions.id DESC
+  `).all(...params).map(formatReorderSuggestion);
+}
+
+function getReorderSuggestion(db, orgId, suggestionId) {
+  return getReorderSuggestions(db, orgId, {}).find(suggestion => suggestion.id === suggestionId) || null;
+}
+
+function formatReorderSuggestion(row) {
+  return {
+    id: row.id,
+    shortageId: row.shortage_id,
+    itemId: row.shortage_item_id,
+    itemSku: row.catalog_sku,
+    itemName: row.catalog_name,
+    locationId: row.shortage_location_id,
+    locationCode: row.location_code,
+    locationName: row.location_name,
+    sourceType: row.shortage_source_type,
+    sourceId: row.shortage_source_id,
+    requestedQty: row.shortage_requested_qty,
+    availableQty: row.shortage_available_qty,
+    shortageQty: row.shortage_qty,
+    shortageStatus: row.shortage_status,
+    suggestedVendorId: row.suggested_vendor_id || "",
+    suggestedVendorName: row.vendor_name || "",
+    suggestedVendorPriceId: row.suggested_vendor_price_id || "",
+    suggestedUnitCost: row.suggested_unit_cost,
+    suggestedQuantity: row.suggested_quantity,
+    currency: row.currency,
+    status: row.status,
+    createdPurchaseOrderId: row.created_purchase_order_id || "",
+    createdPurchaseOrderNumber: row.created_purchase_order_number || "",
+    rejectionReason: row.rejection_reason || "",
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at || ""
+  };
+}
+
+function acceptReorderSuggestion(db, user, suggestionId, body) {
+  const suggestion = getReorderSuggestion(db, user.org_id, suggestionId);
+  if (!suggestion) throwReorderSuggestionNotFound();
+  if (suggestion.status === "accepted" && suggestion.createdPurchaseOrderId) {
+    return { ok: true, idempotent: true, suggestion, order: getPurchaseOrder(db, user.org_id, suggestion.createdPurchaseOrderId) };
+  }
+  if (suggestion.status !== "pending") throwPurchaseStateConflict("Reorder suggestion is not pending");
+  const input = normalizeReorderSuggestionAcceptBody(body, suggestion);
+  const poBody = {
+    ...suggestionToPoBody({
+      vendorId: input.vendorId,
+      quantity: input.quantity,
+      unitCost: input.unitCost,
+      note: input.note || `Reorder suggestion ${suggestion.id}`
+    }, {
+      itemId: suggestion.itemId,
+      shortageQty: suggestion.shortageQty
+    }),
+    orderNumber: reorderSuggestionOrderNumber(suggestion),
+    orderDate: input.orderDate,
+    expectedDate: input.expectedDate
+  };
+  const existingOrder = getPurchaseOrderByOrderNumber(db, user.org_id, poBody.orderNumber);
+  const order = existingOrder || createPurchaseOrder(db, user, poBody).order;
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE reorder_suggestions
+      SET status = 'accepted', created_purchase_order_id = ?, resolved_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(order.id, now, user.org_id, suggestion.id);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.reorder_suggestion.accepted",
+      subjectType: "reorder_suggestion",
+      subjectId: suggestion.id,
+      status: "accepted",
+      payload: { purchaseOrderId: order.id, shortageId: suggestion.shortageId, itemId: suggestion.itemId }
+    });
+    audit(db, user.org_id, user.id, "purchase.reorder_suggestion.accepted", {
+      suggestionId: suggestion.id,
+      purchaseOrderId: order.id,
+      shortageId: suggestion.shortageId,
+      itemId: suggestion.itemId
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, suggestion: getReorderSuggestion(db, user.org_id, suggestion.id), order };
+}
+
+function rejectReorderSuggestion(db, user, suggestionId, body) {
+  const suggestion = getReorderSuggestion(db, user.org_id, suggestionId);
+  if (!suggestion) throwReorderSuggestionNotFound();
+  if (suggestion.status === "rejected") return { ok: true, idempotent: true, suggestion };
+  if (suggestion.status !== "pending") throwPurchaseStateConflict("Reorder suggestion is not pending");
+  const input = normalizeReorderSuggestionRejectBody(body);
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE reorder_suggestions
+      SET status = 'rejected', rejection_reason = ?, resolved_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(input.reason, now, user.org_id, suggestion.id);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.reorder_suggestion.rejected",
+      subjectType: "reorder_suggestion",
+      subjectId: suggestion.id,
+      status: "rejected",
+      payload: { shortageId: suggestion.shortageId, itemId: suggestion.itemId, reason: input.reason }
+    });
+    audit(db, user.org_id, user.id, "purchase.reorder_suggestion.rejected", {
+      suggestionId: suggestion.id,
+      shortageId: suggestion.shortageId,
+      itemId: suggestion.itemId,
+      reason: input.reason
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, suggestion: getReorderSuggestion(db, user.org_id, suggestion.id) };
+}
+
+function normalizeReorderSuggestionListQuery(query) {
+  return {
+    status: normalizePurchaseChoice(query, "status", ["pending", "accepted", "rejected", "expired"], "")
+  };
+}
+
+function reorderSuggestionOrderNumber(suggestion) {
+  return `RS-${suggestion.id}`.toUpperCase().slice(0, 40);
+}
+
+function getPurchaseOrderByOrderNumber(db, orgId, orderNumber) {
+  const row = db.prepare("SELECT id FROM purchase_orders WHERE org_id = ? AND order_number = ?").get(orgId, orderNumber);
+  return row ? getPurchaseOrder(db, orgId, row.id) : null;
+}
+
+function normalizeReorderSuggestionAcceptBody(body, suggestion) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const vendorId = normalizePurchaseText(body, "vendorId", { fallback: suggestion.suggestedVendorId, maxLength: 160, idLike: true });
+  const quantity = normalizePurchaseInteger(body, "quantity", { fallback: suggestion.suggestedQuantity, min: 1, max: 1000000 });
+  const unitCost = normalizePurchaseMoney(body, "unitCost", { fallback: suggestion.suggestedUnitCost, min: 1, max: 1000000000000 });
+  if (!vendorId || !quantity || !unitCost) throwInvalidPurchaseMetadata();
+  const orderDate = normalizePurchaseDate(body, "orderDate");
+  return {
+    vendorId,
+    quantity,
+    unitCost,
+    orderDate,
+    expectedDate: normalizePurchaseDate(body, "expectedDate", { fallback: orderDate }),
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
+function normalizeReorderSuggestionRejectBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  return {
+    reason: normalizePurchaseText(body, "reason", { fallback: "", maxLength: 500 })
+  };
+}
+
+function throwReorderSuggestionNotFound() {
+  const err = new Error("Reorder suggestion not found");
+  err.statusCode = 404;
+  throw err;
 }
 
 function summarizePurchaseLines(orders) {

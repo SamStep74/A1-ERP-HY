@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildApp } = require("../server/app");
-const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const { DEFAULT_EMAIL, DEFAULT_PASSWORD, createSession } = require("../server/db");
 
 // Phase 1 Inventory — Stock Reservations + Stock Shortages + Sales-Order hook.
 //
@@ -732,6 +732,48 @@ test("reservations: auditor (read-only) can list but cannot create or release", 
       payload: { reason: "manual" }
     });
     assert.equal(release.statusCode, 403, release.body);
+  } finally {
+    await app.close();
+  }
+});
+
+test("reservations: inventory permission roles are not blocked by legacy role guards", async () => {
+  const app = await newApp();
+  try {
+    const orgId = "org-armosphera-demo";
+    const now = new Date().toISOString();
+    app.db.prepare(`
+      INSERT INTO users (id, org_id, email, name, role, password_hash, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "user-warehouse-clerk-reservation",
+      orgId,
+      "warehouse.clerk.reservation@example.test",
+      "Warehouse Clerk Reservation",
+      "WarehouseClerk",
+      "session-only",
+      now
+    );
+    const session = createSession(app.db, "user-warehouse-clerk-reservation");
+    const cookie = `sid=${session.token}`;
+
+    const list = await app.inject({ method: "GET", url: "/api/inventory/reservations", headers: { cookie } });
+    assert.equal(list.statusCode, 200, list.body);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/inventory/reservations",
+      headers: { cookie },
+      payload: {
+        itemId: "catitem-pos-barcode-scanner",
+        locationId: "stockloc-main-warehouse",
+        sourceType: "sales_order",
+        sourceId: "so-warehouse-clerk-reservation",
+        quantity: 1
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().reservation.sourceId, "so-warehouse-clerk-reservation");
   } finally {
     await app.close();
   }

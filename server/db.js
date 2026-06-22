@@ -832,6 +832,27 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_order
       ON purchase_order_lines(org_id, purchase_order_id);
 
+    -- Wave 10 Worker A — shortages can become purchasable reorder suggestions.
+    CREATE TABLE IF NOT EXISTS reorder_suggestions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      shortage_id TEXT NOT NULL REFERENCES stock_shortages(id) ON DELETE CASCADE,
+      suggested_vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL,
+      suggested_vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL,
+      suggested_unit_cost INTEGER NOT NULL DEFAULT 0,
+      suggested_quantity REAL NOT NULL CHECK (suggested_quantity > 0),
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      status TEXT NOT NULL CHECK (status IN ('pending','accepted','rejected','expired')) DEFAULT 'pending',
+      created_purchase_order_id TEXT REFERENCES purchase_orders(id) ON DELETE SET NULL,
+      rejection_reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      UNIQUE(org_id, shortage_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reorder_suggestions_status
+      ON reorder_suggestions(org_id, status, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS purchase_receipts (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7597,6 +7618,27 @@ function ensurePurchaseLayer(db) {
   if (!purchaseOrderLineColumns.has("vendor_price_id")) db.exec("ALTER TABLE purchase_order_lines ADD COLUMN vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reorder_suggestions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      shortage_id TEXT NOT NULL REFERENCES stock_shortages(id) ON DELETE CASCADE,
+      suggested_vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL,
+      suggested_vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL,
+      suggested_unit_cost INTEGER NOT NULL DEFAULT 0,
+      suggested_quantity REAL NOT NULL CHECK (suggested_quantity > 0),
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      status TEXT NOT NULL CHECK (status IN ('pending','accepted','rejected','expired')) DEFAULT 'pending',
+      created_purchase_order_id TEXT REFERENCES purchase_orders(id) ON DELETE SET NULL,
+      rejection_reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      UNIQUE(org_id, shortage_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reorder_suggestions_status
+      ON reorder_suggestions(org_id, status, created_at DESC);
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS purchase_receipts (
       id TEXT PRIMARY KEY,
