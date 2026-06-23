@@ -23394,6 +23394,241 @@ test("analytics reports export owner and accountant packets from semantic snapsh
   });
 });
 
+test("analytics report builder saves semantic pivot definitions and executes governed rows", async () => {
+  await withApp(async app => {
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    const auditorCookie = await login(app, "auditor@armosphera.local");
+    const salesCookie = await login(app, "sales@armosphera.local");
+    const supportCookie = await login(app, "support@armosphera.local");
+    const ownerCookie = await login(app);
+    const before = {
+      definitions: app.db.prepare("SELECT COUNT(*) AS count FROM analytics_report_definitions").get().count,
+      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type LIKE 'analytics.report_definition.%'").get().count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type LIKE 'analytics.report_definition.%'").get().count
+    };
+
+    await app.inject({
+      method: "POST",
+      url: "/api/analytics/semantic-snapshots",
+      headers: { cookie: accountantCookie },
+      payload: { reportDate: "2026-05-26", note: "Builder pivot seed" }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/analytics/semantic-snapshots",
+      headers: { cookie: accountantCookie },
+      payload: { reportDate: "2026-05-27", note: "Builder pivot trend" }
+    });
+
+    const supportDenied = await app.inject({
+      method: "GET",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: supportCookie }
+    });
+    assert.equal(supportDenied.statusCode, 403, supportDenied.body);
+
+    const salesDenied = await app.inject({
+      method: "GET",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: salesCookie }
+    });
+    assert.equal(salesDenied.statusCode, 403, salesDenied.body);
+
+    const auditorWriteDenied = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: auditorCookie },
+      payload: {
+        name: "Auditor blocked definition",
+        metricIds: ["overdue-exposure"],
+        dimensions: ["metricId"],
+        measures: ["value"]
+      }
+    });
+    assert.equal(auditorWriteDenied.statusCode, 403, auditorWriteDenied.body);
+
+    const missingMetricIds = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: accountantCookie },
+      payload: {
+        name: "Missing metrics definition",
+        source: "semantic_snapshots",
+        dimensions: ["metricId"],
+        measures: ["value"]
+      }
+    });
+    assert.equal(missingMetricIds.statusCode, 400, missingMetricIds.body);
+
+    const accountantOwnerMetricDenied = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: accountantCookie },
+      payload: {
+        name: "Pipeline owner metric should be blocked",
+        source: "semantic_metrics",
+        metricIds: ["pipeline-value"],
+        dimensions: ["metricId"],
+        measures: ["value"]
+      }
+    });
+    assert.equal(accountantOwnerMetricDenied.statusCode, 403, accountantOwnerMetricDenied.body);
+
+    const ownerDefinition = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: ownerCookie },
+      payload: {
+        name: "Owner pipeline definition",
+        source: "semantic_metrics",
+        metricIds: ["pipeline-value"],
+        dimensions: ["metricId"],
+        measures: ["value"]
+      }
+    });
+    assert.equal(ownerDefinition.statusCode, 200, ownerDefinition.body);
+
+    const accountantOwnerDefinitionPatchDenied = await app.inject({
+      method: "PATCH",
+      url: `/api/analytics/report-definitions/${ownerDefinition.json().definition.id}`,
+      headers: { cookie: accountantCookie },
+      payload: {
+        name: "Accountant takeover blocked",
+        metricIds: ["overdue-exposure"]
+      }
+    });
+    assert.equal(accountantOwnerDefinitionPatchDenied.statusCode, 403, accountantOwnerDefinitionPatchDenied.body);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: accountantCookie },
+      payload: {
+        name: "Finance close pivot",
+        description: "Semantic snapshot pivot for close review.",
+        source: "semantic_snapshots",
+        metricIds: ["overdue-exposure", "vat-readiness"],
+        dimensions: ["metricId", "label", "unit", "reportDate"],
+        measures: ["value", "recordCount", "pointCount"],
+        filters: { from: "2026-05-26", to: "2026-05-27" },
+        schedule: { cadence: "weekly", timezone: "Asia/Yerevan" }
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const definition = created.json().definition;
+    assert.match(definition.id, /^analytics-definition-/);
+    assert.equal(definition.name, "Finance close pivot");
+    assert.equal(definition.source, "semantic_snapshots");
+    assert.deepEqual(definition.metricIds, ["overdue-exposure", "vat-readiness"]);
+    assert.deepEqual(definition.measures, ["value", "recordCount", "pointCount"]);
+    assert.equal(definition.schedule.cadence, "weekly");
+    assert.match(definition.checksum, /^[a-f0-9]{64}$/);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: accountantCookie },
+      payload: {
+        name: "Finance close pivot",
+        source: "semantic_snapshots",
+        metricIds: ["overdue-exposure"],
+        dimensions: ["metricId"],
+        measures: ["value"]
+      }
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.ok(listed.json().definitions.some(item => item.id === definition.id));
+
+    const run = await app.inject({
+      method: "GET",
+      url: `/api/analytics/report-definitions/${definition.id}/run?from=2026-05-27&to=2026-05-27`,
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(run.statusCode, 200, run.body);
+    const result = run.json().result;
+    assert.equal(result.definitionId, definition.id);
+    assert.deepEqual(result.dimensions, ["metricId", "label", "unit", "reportDate"]);
+    assert.equal(result.filters.from, "2026-05-27");
+    assert.equal(result.filters.to, "2026-05-27");
+    assert.equal(result.rowCount, 2);
+    assert.ok(result.rows.some(row =>
+      row.metricId === "overdue-exposure"
+        && row.reportDate === "2026-05-27"
+        && row.value === 960000
+        && row.recordCount === 1
+        && row.pointCount === 1
+    ));
+    assert.ok(result.rows.some(row => row.metricId === "vat-readiness" && row.value >= 1));
+    assert.match(result.checksum, /^[a-f0-9]{64}$/);
+    assert.ok(app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = 'analytics.report_definition.run'
+        AND json_extract(details, '$.definitionId') = ?
+        AND json_extract(details, '$.checksum') = ?
+    `).get(definition.id, result.checksum).count >= 1);
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/analytics/report-definitions/${definition.id}`,
+      headers: { cookie: accountantCookie },
+      payload: {
+        status: "archived",
+        schedule: { cadence: "manual" }
+      }
+    });
+    assert.equal(updated.statusCode, 200, updated.body);
+    assert.equal(updated.json().definition.status, "archived");
+    assert.equal(updated.json().definition.schedule.cadence, "manual");
+
+    const archivedRun = await app.inject({
+      method: "GET",
+      url: `/api/analytics/report-definitions/${definition.id}/run`,
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(archivedRun.statusCode, 409, archivedRun.body);
+
+    const malformed = await app.inject({
+      method: "POST",
+      url: "/api/analytics/report-definitions",
+      headers: { cookie: accountantCookie },
+      payload: {
+        name: "Bad\nsecret-analytics-definition-name-token",
+        source: "semantic_snapshots",
+        metricIds: ["unknown-secret-analytics-definition-metric-token"],
+        dimensions: ["metricId"],
+        measures: ["value"]
+      }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.doesNotMatch(malformed.body, /secret-analytics-definition-/);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM analytics_report_definitions WHERE name LIKE ?").get("%secret-analytics-definition-%").count, 0);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: ownerCookie },
+      payload: { note: "Analytics report definitions must restore with report builder evidence." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    assert.ok(backup.json().backup.payload.tables.analytics_report_definitions.some(row => row.id === definition.id));
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM analytics_report_definitions").get().count, before.definitions + 2);
+    assert.ok(app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type LIKE 'analytics.report_definition.%'").get().count >= before.events + 3);
+    assert.ok(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type LIKE 'analytics.report_definition.%'").get().count >= before.audits + 3);
+
+    const analytics = await app.inject({ method: "GET", url: "/api/analytics", headers: { cookie: ownerCookie } });
+    assert.equal(analytics.statusCode, 200, analytics.body);
+    assert.ok(analytics.json().analyticsReportDefinitions.some(item => item.id === definition.id));
+  });
+});
+
 test("analytics snapshot and report packets reject malformed note metadata before persistence", async () => {
   await withApp(async app => {
     const accountantCookie = await login(app, "accountant@armosphera.local");

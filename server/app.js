@@ -36,6 +36,11 @@ const ANALYTICS_REPORT_METRICS = {
   ],
   accountant: ["receivables-aging", "overdue-exposure", "vat-readiness"]
 };
+const ANALYTICS_BUILDER_SOURCES = Object.freeze(["semantic_metrics", "semantic_snapshots"]);
+const ANALYTICS_BUILDER_STATUSES = Object.freeze(["active", "archived"]);
+const ANALYTICS_BUILDER_DIMENSIONS = Object.freeze(["metricId", "label", "unit", "reportDate", "sourceApp", "ownerRole"]);
+const ANALYTICS_BUILDER_MEASURES = Object.freeze(["value", "recordCount", "metricCount", "pointCount"]);
+const ANALYTICS_BUILDER_CADENCES = Object.freeze(["manual", "daily", "weekly", "monthly"]);
 const ROLE_DASHBOARD_CONFIGS = {
   Owner: {
     dashboardId: "owner-operating",
@@ -2918,6 +2923,36 @@ function registerApi(app, db, options = {}) {
     return { report };
   });
 
+  app.get("/api/analytics/report-definitions", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "analytics");
+    requireAnalyticsBuilderReader(user);
+    return { definitions: getAnalyticsReportDefinitions(db, user, request.query || {}) };
+  });
+
+  app.post("/api/analytics/report-definitions", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "analytics");
+    requireAnalyticsBuilderWriter(user);
+    return { ok: true, definition: createAnalyticsReportDefinition(db, user, request.body === undefined ? {} : request.body) };
+  });
+
+  app.patch("/api/analytics/report-definitions/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "analytics");
+    requireAnalyticsBuilderWriter(user);
+    const definitionId = normalizeAnalyticsPathId(request.params.id);
+    return { ok: true, definition: updateAnalyticsReportDefinition(db, user, definitionId, request.body === undefined ? {} : request.body) };
+  });
+
+  app.get("/api/analytics/report-definitions/:id/run", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "analytics");
+    requireAnalyticsBuilderReader(user);
+    const definitionId = normalizeAnalyticsPathId(request.params.id);
+    return runAnalyticsReportDefinition(db, user, definitionId, request.query || {});
+  });
+
   app.post("/api/crm/leads", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
@@ -3910,6 +3945,9 @@ function registerApi(app, db, options = {}) {
       semanticMetrics: getSemanticMetrics(db, user.org_id, user).metrics,
       semanticSnapshots: getSemanticMetricSnapshots(db, user.org_id, {}),
       analyticsReports: getAnalyticsReportPackets(db, user),
+      analyticsReportDefinitions: hasAppAccess(db, user, "analytics") && visibleAnalyticsReportTypes(user).length > 0
+        ? getAnalyticsReportDefinitions(db, user, {})
+        : [],
       roleDashboard: getRoleDashboard(db, user),
       localization: localizationChecklist()
     };
@@ -8570,6 +8608,24 @@ function requireAnalyticsReportWriter(user, reportType) {
       : [];
   if (!allowed.includes(reportType)) {
     const err = new Error("Analytics report writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireAnalyticsBuilderReader(user) {
+  requireAnalyticsReportReader(user);
+  if (!hasPermission(user, "reports.builder.read")) {
+    const err = new Error("Analytics report builder reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireAnalyticsBuilderWriter(user) {
+  requireAnalyticsSnapshotWriter(user);
+  if (!hasPermission(user, "reports.builder.update")) {
+    const err = new Error("Analytics report builder writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -42755,6 +42811,7 @@ const ORG_BACKUP_TABLES = [
   "ai_workflow_builder_suggestions",
   "analytics_metric_snapshots",
   "analytics_report_packets",
+  "analytics_report_definitions",
   "suite_events",
   "audit_events"
 ];
@@ -43907,6 +43964,10 @@ function getSemanticMetricSnapshotRows(db, orgId, filters = {}) {
     where.push("analytics_metric_snapshots.metric_id = ?");
     params.push(filters.metricId);
   }
+  if (Array.isArray(filters.metricIds) && filters.metricIds.length > 0) {
+    where.push(`analytics_metric_snapshots.metric_id IN (${filters.metricIds.map(() => "?").join(",")})`);
+    params.push(...filters.metricIds);
+  }
   if (filters.reportDate) {
     where.push("analytics_metric_snapshots.report_date = ?");
     params.push(filters.reportDate);
@@ -44253,6 +44314,581 @@ function formatAnalyticsReportPacket(row, includePayload = false) {
     report.exportContent = row.export_content;
   }
   return report;
+}
+
+function getAnalyticsReportDefinitions(db, user, query = {}) {
+  const filters = normalizeAnalyticsReportDefinitionQuery(query);
+  const params = [user.org_id];
+  const where = ["analytics_report_definitions.org_id = ?"];
+  if (filters.status) {
+    where.push("analytics_report_definitions.status = ?");
+    params.push(filters.status);
+  }
+  return db.prepare(`
+    SELECT analytics_report_definitions.*, users.name AS created_by_name
+    FROM analytics_report_definitions
+    LEFT JOIN users ON users.id = analytics_report_definitions.created_by_user_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY analytics_report_definitions.status = 'archived',
+      analytics_report_definitions.updated_at DESC,
+      analytics_report_definitions.name
+  `).all(...params)
+    .map(formatAnalyticsReportDefinition)
+    .filter(definition => canReadAnalyticsReportDefinition(user, definition));
+}
+
+function getAnalyticsReportDefinition(db, orgId, definitionId) {
+  const row = db.prepare(`
+    SELECT analytics_report_definitions.*, users.name AS created_by_name
+    FROM analytics_report_definitions
+    LEFT JOIN users ON users.id = analytics_report_definitions.created_by_user_id
+    WHERE analytics_report_definitions.org_id = ? AND analytics_report_definitions.id = ?
+  `).get(orgId, definitionId);
+  return row ? formatAnalyticsReportDefinition(row) : null;
+}
+
+function getAnalyticsReportDefinitionOrThrow(db, orgId, definitionId) {
+  const definition = getAnalyticsReportDefinition(db, orgId, definitionId);
+  if (!definition) {
+    const err = new Error("Analytics report definition not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  return definition;
+}
+
+function assertAnalyticsReportDefinitionNameAvailable(db, orgId, name, excludeId = "") {
+  const existing = db.prepare(`
+    SELECT id FROM analytics_report_definitions
+    WHERE org_id = ? AND name = ? AND id <> ?
+  `).get(orgId, name, excludeId);
+  if (existing) {
+    const err = new Error("Analytics report definition name already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function analyticsBuilderAllowedMetricIds(user) {
+  const metricIds = new Set();
+  for (const reportType of visibleAnalyticsReportTypes(user)) {
+    for (const metricId of ANALYTICS_REPORT_METRICS[reportType] || []) metricIds.add(metricId);
+  }
+  return metricIds;
+}
+
+function canReadAnalyticsReportDefinition(user, definition) {
+  const allowed = analyticsBuilderAllowedMetricIds(user);
+  return definition.metricIds.length > 0 && definition.metricIds.every(metricId => allowed.has(metricId));
+}
+
+function assertAnalyticsBuilderMetricScope(user, metricIds) {
+  const allowed = analyticsBuilderAllowedMetricIds(user);
+  if (metricIds.length === 0 || metricIds.some(metricId => !allowed.has(metricId))) {
+    const err = new Error("Analytics report builder metric is outside the user's report scope");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function assertRunnableAnalyticsReportDefinition(definition) {
+  if (definition.metricIds.length === 0 || definition.dimensions.length === 0 || definition.measures.length === 0) {
+    const err = new Error("Analytics report definition is incomplete");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function createAnalyticsReportDefinition(db, user, body) {
+  const input = normalizeAnalyticsReportDefinitionBody(db, user, body, {});
+  assertAnalyticsBuilderMetricScope(user, input.metricIds);
+  assertAnalyticsReportDefinitionNameAvailable(db, user.org_id, input.name);
+  const definitionId = randomId("analytics-definition");
+  const now = new Date().toISOString();
+  const checksum = analyticsReportDefinitionChecksum(input);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO analytics_report_definitions (
+        id, org_id, name, description, source, status, metric_ids, dimensions,
+        measures, filters, schedule, checksum, created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      definitionId,
+      user.org_id,
+      input.name,
+      input.description,
+      input.source,
+      input.status,
+      JSON.stringify(input.metricIds),
+      JSON.stringify(input.dimensions),
+      JSON.stringify(input.measures),
+      JSON.stringify(input.filters),
+      JSON.stringify(input.schedule),
+      checksum,
+      user.id,
+      now,
+      now
+    );
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "analytics.report_definition.created",
+      subjectType: "analytics_report_definition",
+      subjectId: definitionId,
+      status: input.status,
+      payload: { name: input.name, source: input.source, metricIds: input.metricIds, checksum }
+    });
+    audit(db, user.org_id, user.id, "analytics.report_definition.created", {
+      definitionId,
+      name: input.name,
+      source: input.source,
+      metricIds: input.metricIds,
+      checksum
+    });
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return getAnalyticsReportDefinition(db, user.org_id, definitionId);
+}
+
+function updateAnalyticsReportDefinition(db, user, definitionId, body) {
+  const existing = getAnalyticsReportDefinitionOrThrow(db, user.org_id, definitionId);
+  assertAnalyticsBuilderMetricScope(user, existing.metricIds);
+  const input = normalizeAnalyticsReportDefinitionBody(db, user, body, { partial: true, existing });
+  assertAnalyticsBuilderMetricScope(user, input.metricIds);
+  if (input.name !== existing.name) assertAnalyticsReportDefinitionNameAvailable(db, user.org_id, input.name, definitionId);
+  const now = new Date().toISOString();
+  const checksum = analyticsReportDefinitionChecksum(input);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE analytics_report_definitions
+      SET name = ?, description = ?, source = ?, status = ?, metric_ids = ?,
+        dimensions = ?, measures = ?, filters = ?, schedule = ?, checksum = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(
+      input.name,
+      input.description,
+      input.source,
+      input.status,
+      JSON.stringify(input.metricIds),
+      JSON.stringify(input.dimensions),
+      JSON.stringify(input.measures),
+      JSON.stringify(input.filters),
+      JSON.stringify(input.schedule),
+      checksum,
+      now,
+      user.org_id,
+      definitionId
+    );
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "analytics.report_definition.updated",
+      subjectType: "analytics_report_definition",
+      subjectId: definitionId,
+      status: input.status,
+      payload: { name: input.name, source: input.source, metricIds: input.metricIds, checksum }
+    });
+    audit(db, user.org_id, user.id, "analytics.report_definition.updated", {
+      definitionId,
+      name: input.name,
+      source: input.source,
+      metricIds: input.metricIds,
+      checksum
+    });
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return getAnalyticsReportDefinition(db, user.org_id, definitionId);
+}
+
+function runAnalyticsReportDefinition(db, user, definitionId, query = {}) {
+  const definition = getAnalyticsReportDefinitionOrThrow(db, user.org_id, definitionId);
+  assertAnalyticsBuilderMetricScope(user, definition.metricIds);
+  assertRunnableAnalyticsReportDefinition(definition);
+  if (definition.status !== "active") {
+    const err = new Error("Archived analytics report definition cannot be run");
+    err.statusCode = 409;
+    throw err;
+  }
+  const runQuery = normalizeAnalyticsReportRunQuery(query);
+  const effectiveFilters = analyticsBuilderEffectiveFilters(definition.filters, runQuery);
+  const records = getAnalyticsBuilderRecords(db, user, definition, effectiveFilters);
+  const rows = pivotAnalyticsBuilderRecords(records, definition.dimensions, definition.measures);
+  const payload = {
+    definitionId: definition.id,
+    name: definition.name,
+    source: definition.source,
+    generatedAt: new Date().toISOString(),
+    semanticLayerVersion: SEMANTIC_LAYER_VERSION,
+    dimensions: definition.dimensions,
+    measures: definition.measures,
+    filters: effectiveFilters,
+    columns: [
+      ...definition.dimensions.map(field => ({ field, role: "dimension" })),
+      ...definition.measures.map(field => ({ field, role: "measure" }))
+    ],
+    rowCount: rows.length,
+    sourceRecordCount: records.length,
+    rows,
+    totals: analyticsBuilderTotals(rows, definition.measures)
+  };
+  const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  const result = { ...payload, checksum };
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "analytics.report_definition.run",
+    subjectType: "analytics_report_definition",
+    subjectId: definition.id,
+    status: "completed",
+    payload: {
+      definitionId: definition.id,
+      name: definition.name,
+      source: definition.source,
+      rowCount: result.rowCount,
+      sourceRecordCount: result.sourceRecordCount,
+      filters: effectiveFilters,
+      checksum
+    }
+  });
+  audit(db, user.org_id, user.id, "analytics.report_definition.run", {
+    definitionId: definition.id,
+    name: definition.name,
+    source: definition.source,
+    rowCount: result.rowCount,
+    sourceRecordCount: result.sourceRecordCount,
+    filters: effectiveFilters,
+    checksum
+  });
+  return { ok: true, definition, result };
+}
+
+function getAnalyticsBuilderRecords(db, user, definition, effectiveFilters) {
+  const metricIds = new Set(definition.metricIds);
+  const sourceAppFilter = effectiveFilters.sourceApp || "";
+  const expandSourceApps = definition.dimensions.includes("sourceApp") || Boolean(sourceAppFilter);
+  if (definition.source === "semantic_snapshots") {
+    const snapshots = getSemanticMetricSnapshotRows(db, user.org_id, {
+      from: effectiveFilters.from || "",
+      to: effectiveFilters.to || "",
+      reportDate: effectiveFilters.reportDate || "",
+      metricIds: [...metricIds]
+    });
+    const metricMap = new Map(getSemanticMetrics(db, user.org_id, user).metrics.map(metric => [metric.id, metric]));
+    return snapshots.flatMap(snapshot => analyticsBuilderRecordSourceRows({
+      metricId: snapshot.metricId,
+      label: snapshot.label,
+      unit: snapshot.unit,
+      value: snapshot.value,
+      recordCount: snapshot.recordCount,
+      reportDate: snapshot.reportDate,
+      sourceApps: snapshot.sourceApps,
+      sourceApp: snapshot.sourceApps.join(" + "),
+      ownerRole: metricMap.get(snapshot.metricId)?.ownerRole || "",
+      checksum: snapshot.checksum
+    }, sourceAppFilter, expandSourceApps));
+  }
+
+  const asOf = effectiveFilters.asOf || effectiveFilters.reportDate || DEFAULT_REPORT_DATE;
+  return getSemanticMetrics(db, user.org_id, user, asOf).metrics
+    .filter(metric => metricIds.has(metric.id))
+    .flatMap(metric => analyticsBuilderRecordSourceRows({
+      metricId: metric.id,
+      label: metric.label,
+      unit: metric.unit,
+      value: metric.value,
+      recordCount: metric.recordCount,
+      reportDate: asOf,
+      sourceApps: metric.sourceApps,
+      sourceApp: metric.sourceApps.join(" + "),
+      ownerRole: metric.ownerRole,
+      checksum: ""
+    }, sourceAppFilter, expandSourceApps));
+}
+
+function analyticsBuilderRecordSourceRows(record, sourceAppFilter, expandSourceApps) {
+  const apps = Array.isArray(record.sourceApps) && record.sourceApps.length > 0 ? record.sourceApps : [""];
+  if (!expandSourceApps) return [record];
+  return apps
+    .filter(sourceApp => !sourceAppFilter || sourceApp === sourceAppFilter)
+    .map(sourceApp => ({ ...record, sourceApp }));
+}
+
+function analyticsBuilderEffectiveFilters(savedFilters, runQuery) {
+  const filters = { ...savedFilters };
+  for (const [key, value] of Object.entries(runQuery)) {
+    if (value) filters[key] = value;
+  }
+  return filters;
+}
+
+function pivotAnalyticsBuilderRecords(records, dimensions, measures) {
+  const groups = new Map();
+  for (const record of records) {
+    const key = JSON.stringify(dimensions.map(field => record[field] ?? ""));
+    if (!groups.has(key)) {
+      const row = {};
+      for (const field of dimensions) row[field] = record[field] ?? "";
+      row.__metricIds = new Set();
+      row.__pointCount = 0;
+      for (const measure of measures) {
+        if (measure === "metricCount" || measure === "pointCount") row[measure] = 0;
+        else row[measure] = 0;
+      }
+      groups.set(key, row);
+    }
+    const row = groups.get(key);
+    row.__metricIds.add(record.metricId);
+    row.__pointCount += 1;
+    if (measures.includes("value")) row.value += Number(record.value || 0);
+    if (measures.includes("recordCount")) row.recordCount += Number(record.recordCount || 0);
+  }
+  return [...groups.values()].map(row => {
+    if (measures.includes("metricCount")) row.metricCount = row.__metricIds.size;
+    if (measures.includes("pointCount")) row.pointCount = row.__pointCount;
+    delete row.__metricIds;
+    delete row.__pointCount;
+    return row;
+  }).sort((a, b) => dimensions.map(field => String(a[field] || "").localeCompare(String(b[field] || ""))).find(value => value !== 0) || 0);
+}
+
+function analyticsBuilderTotals(rows, measures) {
+  const totals = {};
+  for (const measure of measures) {
+    totals[measure] = rows.reduce((sum, row) => sum + Number(row[measure] || 0), 0);
+  }
+  return totals;
+}
+
+function formatAnalyticsReportDefinition(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || "",
+    source: row.source,
+    status: row.status,
+    metricIds: parseStoredAnalyticsMetricIds(row.metric_ids),
+    dimensions: parseStoredAnalyticsBuilderArray(row.dimensions, ANALYTICS_BUILDER_DIMENSIONS, ["metricId"]),
+    measures: parseStoredAnalyticsBuilderArray(row.measures, ANALYTICS_BUILDER_MEASURES, ["value"]),
+    filters: parseStoredAnalyticsBuilderFilters(row.filters),
+    schedule: parseStoredAnalyticsBuilderSchedule(row.schedule),
+    checksum: row.checksum,
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function parseStoredAnalyticsMetricIds(value) {
+  const parsed = safeJson(value);
+  if (!Array.isArray(parsed)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of parsed) {
+    if (typeof item !== "string" || /[\x00-\x1f\x7f]/.test(item)) continue;
+    const text = item.trim();
+    if (!/^[a-z0-9-]{1,120}$/.test(text) || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
+}
+
+function parseStoredAnalyticsBuilderArray(value, allowed, fallback) {
+  const parsed = safeJson(value);
+  if (!Array.isArray(parsed)) return [...fallback];
+  const allowedSet = new Set(allowed);
+  const seen = new Set();
+  const out = [];
+  for (const item of parsed) {
+    if (typeof item !== "string" || /[\x00-\x1f\x7f]/.test(item)) continue;
+    const text = item.trim();
+    if (!allowedSet.has(text) || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out.length > 0 ? out : [...fallback];
+}
+
+function parseStoredAnalyticsBuilderFilters(value) {
+  const parsed = safeJson(value);
+  if (!isPlainObject(parsed)) return {};
+  const filters = {};
+  if (typeof parsed.sourceApp === "string" && !/[\x00-\x1f\x7f]/.test(parsed.sourceApp) && parsed.sourceApp.length <= 120) {
+    filters.sourceApp = parsed.sourceApp.trim();
+  }
+  for (const field of ["reportDate", "from", "to", "asOf"]) {
+    if (typeof parsed[field] === "string" && isExactIsoDate(parsed[field].trim())) {
+      filters[field] = parsed[field].trim();
+    }
+  }
+  return filters;
+}
+
+function parseStoredAnalyticsBuilderSchedule(value) {
+  const parsed = safeJson(value);
+  if (!isPlainObject(parsed)) return { cadence: "manual" };
+  const cadence = typeof parsed.cadence === "string" && ANALYTICS_BUILDER_CADENCES.includes(parsed.cadence.trim())
+    ? parsed.cadence.trim()
+    : "manual";
+  const schedule = { cadence };
+  if (typeof parsed.timezone === "string" && !/[\x00-\x1f\x7f]/.test(parsed.timezone) && parsed.timezone.trim().length <= 80) {
+    schedule.timezone = parsed.timezone.trim();
+  }
+  return schedule;
+}
+
+function normalizeAnalyticsReportDefinitionQuery(query) {
+  if (!isPlainObject(query)) throwInvalidAnalyticsMetadata();
+  return {
+    status: normalizeAnalyticsOptionalChoice(query, "status", ANALYTICS_BUILDER_STATUSES)
+  };
+}
+
+function normalizeAnalyticsReportRunQuery(query) {
+  if (!isPlainObject(query)) throwInvalidAnalyticsMetadata();
+  return {
+    asOf: normalizeAnalyticsQueryDate(query, "asOf"),
+    reportDate: normalizeAnalyticsQueryDate(query, "reportDate"),
+    from: normalizeAnalyticsQueryDate(query, "from"),
+    to: normalizeAnalyticsQueryDate(query, "to")
+  };
+}
+
+function normalizeAnalyticsReportDefinitionBody(db, user, body, options = {}) {
+  const { partial = false, existing = null } = options;
+  if (!isPlainObject(body)) throwInvalidAnalyticsMetadata();
+  const source = normalizeAnalyticsOptionalChoice(body, "source", ANALYTICS_BUILDER_SOURCES, existing?.source || "semantic_metrics");
+  const status = normalizeAnalyticsOptionalChoice(body, "status", ANALYTICS_BUILDER_STATUSES, existing?.status || "active");
+  const metricIds = normalizeAnalyticsBuilderArray(body, "metricIds", {
+    allowed: getSemanticMetrics(db, user.org_id, user).metrics.map(metric => metric.id),
+    fallback: existing?.metricIds || [],
+    required: !partial,
+    max: 8
+  });
+  const dimensions = normalizeAnalyticsBuilderArray(body, "dimensions", {
+    allowed: ANALYTICS_BUILDER_DIMENSIONS,
+    fallback: existing?.dimensions || ["metricId", "label", "unit"],
+    required: false,
+    max: 6
+  });
+  const measures = normalizeAnalyticsBuilderArray(body, "measures", {
+    allowed: ANALYTICS_BUILDER_MEASURES,
+    fallback: existing?.measures || ["value", "recordCount"],
+    required: false,
+    max: 4
+  });
+  return {
+    name: normalizeAnalyticsDefinitionText(body, "name", { required: !partial, fallback: existing?.name || "", minLength: 3, maxLength: 120 }),
+    description: normalizeAnalyticsDefinitionText(body, "description", { fallback: existing?.description || "", maxLength: 500 }),
+    source,
+    status,
+    metricIds,
+    dimensions,
+    measures,
+    filters: normalizeAnalyticsBuilderFilters(body, existing?.filters || {}),
+    schedule: normalizeAnalyticsBuilderSchedule(body, existing?.schedule || { cadence: "manual" })
+  };
+}
+
+function normalizeAnalyticsBuilderArray(body, field, options = {}) {
+  const { allowed, fallback = [], required = false, max = 8 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined) {
+    if (required && fallback.length === 0) throwInvalidAnalyticsMetadata();
+    return [...fallback];
+  }
+  if (!Array.isArray(value) || value.length === 0 || value.length > max) throwInvalidAnalyticsMetadata();
+  const allowedSet = new Set(allowed);
+  const seen = new Set();
+  const normalized = [];
+  for (const item of value) {
+    if (typeof item !== "string" || /[\x00-\x1f\x7f]/.test(item)) throwInvalidAnalyticsMetadata();
+    const text = item.trim();
+    if (!allowedSet.has(text) || seen.has(text)) throwInvalidAnalyticsMetadata();
+    seen.add(text);
+    normalized.push(text);
+  }
+  return normalized;
+}
+
+function normalizeAnalyticsBuilderFilters(body, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, "filters") ? body.filters : fallback;
+  if (!isPlainObject(value)) throwInvalidAnalyticsMetadata();
+  const out = {};
+  if (Object.prototype.hasOwnProperty.call(value, "sourceApp")) {
+    out.sourceApp = normalizeAnalyticsPlainTextValue(value.sourceApp, { maxLength: 120, allowEmpty: true });
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "reportDate")) out.reportDate = normalizeSnapshotReportDate(value.reportDate);
+  if (Object.prototype.hasOwnProperty.call(value, "from")) out.from = normalizeSnapshotReportDate(value.from);
+  if (Object.prototype.hasOwnProperty.call(value, "to")) out.to = normalizeSnapshotReportDate(value.to);
+  if (Object.prototype.hasOwnProperty.call(value, "asOf")) out.asOf = normalizeSnapshotReportDate(value.asOf);
+  return out;
+}
+
+function normalizeAnalyticsBuilderSchedule(body, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, "schedule") ? body.schedule : fallback;
+  if (!isPlainObject(value)) throwInvalidAnalyticsMetadata();
+  const cadence = Object.prototype.hasOwnProperty.call(value, "cadence")
+    ? normalizeAnalyticsPlainTextValue(value.cadence, { maxLength: 20 })
+    : (fallback.cadence || "manual");
+  if (!ANALYTICS_BUILDER_CADENCES.includes(cadence)) throwInvalidAnalyticsMetadata();
+  const schedule = { cadence };
+  if (Object.prototype.hasOwnProperty.call(value, "timezone")) {
+    schedule.timezone = normalizeAnalyticsPlainTextValue(value.timezone, { maxLength: 80, allowEmpty: true });
+  } else if (fallback.timezone) {
+    schedule.timezone = fallback.timezone;
+  }
+  return schedule;
+}
+
+function normalizeAnalyticsDefinitionText(body, field, options = {}) {
+  const { required = false, fallback = "", minLength = 0, maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidAnalyticsMetadata();
+    return fallback;
+  }
+  const text = normalizeAnalyticsPlainTextValue(value, { maxLength });
+  if (text.length < minLength) throwInvalidAnalyticsMetadata();
+  return text;
+}
+
+function normalizeAnalyticsPlainTextValue(value, options = {}) {
+  const { maxLength = 200, allowEmpty = false } = options;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidAnalyticsMetadata();
+  const text = value.trim();
+  if ((!allowEmpty && !text) || text.length > maxLength) throwInvalidAnalyticsMetadata();
+  return text;
+}
+
+function normalizeAnalyticsOptionalChoice(body, field, allowed, fallback = "") {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  const text = normalizeAnalyticsPlainTextValue(value, { maxLength: 80 });
+  if (!allowed.includes(text)) throwInvalidAnalyticsMetadata();
+  return text;
+}
+
+function analyticsReportDefinitionChecksum(definition) {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    name: definition.name,
+    source: definition.source,
+    metricIds: definition.metricIds,
+    dimensions: definition.dimensions,
+    measures: definition.measures,
+    filters: definition.filters,
+    schedule: definition.schedule
+  })).digest("hex");
 }
 
 function normalizeAnalyticsChoice(body, field, allowed, fallback) {

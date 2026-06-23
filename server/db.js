@@ -8189,6 +8189,28 @@ function ensureAnalyticsLayer(db) {
 
     CREATE INDEX IF NOT EXISTS idx_analytics_report_packets_type
       ON analytics_report_packets(org_id, report_type, period_key);
+
+    CREATE TABLE IF NOT EXISTS analytics_report_definitions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL CHECK (source IN ('semantic_metrics','semantic_snapshots')) DEFAULT 'semantic_metrics',
+      status TEXT NOT NULL CHECK (status IN ('active','archived')) DEFAULT 'active',
+      metric_ids TEXT NOT NULL,
+      dimensions TEXT NOT NULL,
+      measures TEXT NOT NULL,
+      filters TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_analytics_report_definitions_status
+      ON analytics_report_definitions(org_id, status, updated_at DESC);
   `);
 }
 
